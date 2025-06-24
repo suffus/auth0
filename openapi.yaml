@@ -1,0 +1,610 @@
+openapi: 3.0.3
+info:
+  title: YubiApp API
+  version: 1.0.0
+  description: API for managing users, roles, permissions, resources, and YubiKey devices with device-based authentication.
+
+servers:
+  - url: http://localhost:8080/api/v1
+
+components:
+  securitySchemes:
+    DeviceAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: |
+        Device-based authentication. Example: `yubikey:<otp>`, `totp:<code>`, etc.
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        username: { type: string }
+        first_name: { type: string }
+        last_name: { type: string }
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
+    Role:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Permission'
+    Resource:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        type: { type: string }
+        location: { type: string }
+        department: { type: string }
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    Permission:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        resource:
+          $ref: '#/components/schemas/Resource'
+        action: { type: string }
+        effect: { type: string }
+        created_at: { type: string, format: date-time }
+    Device:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        user:
+          $ref: '#/components/schemas/User'
+        type: { type: string }
+        identifier: { type: string }
+        active: { type: boolean }
+        verified_at: { type: string, format: date-time }
+        last_used_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+security:
+  - DeviceAuth: []
+
+paths:
+  /auth/device:
+    post:
+      summary: Authenticate using a device (YubiKey, TOTP, etc.)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                device_type: { type: string }
+                auth_code: { type: string }
+                permission: 
+                  type: string
+                  description: |
+                    Optional permission to check. Can be either:
+                    - Resource:action format (e.g., "yubiapp:read")
+                    - Permission UUID (e.g., "123e4567-e89b-12d3-a456-426614174000")
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authenticated: { type: boolean }
+                  user: { $ref: '#/components/schemas/User' }
+        '401':
+          description: Authentication failed
+
+  /users:
+    get:
+      summary: List users
+      security: [ { DeviceAuth: [] } ]
+      responses:
+        '200':
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items: { $ref: '#/components/schemas/User' }
+                  count: { type: integer }
+    post:
+      summary: Create a user
+      security: [ { DeviceAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, username, password]
+              properties:
+                email: { type: string }
+                username: { type: string }
+                password: { type: string }
+                first_name: { type: string }
+                last_name: { type: string }
+                active: { type: boolean }
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+
+  /users/{id}:
+    get:
+      summary: Get user by ID
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: User details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+    put:
+      summary: Update user
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string }
+                username: { type: string }
+                password: { type: string }
+                first_name: { type: string }
+                last_name: { type: string }
+                active: { type: boolean }
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+    delete:
+      summary: Delete user
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: User deleted
+
+  /user-roles/{user_id}/{role_id}:
+    post:
+      summary: Assign user to role
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: role_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: User assigned to role
+    delete:
+      summary: Remove user from role
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: role_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: User removed from role
+
+  /roles:
+    get:
+      summary: List roles
+      security: [ { DeviceAuth: [] } ]
+      responses:
+        '200':
+          description: List of roles
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  roles:
+                    type: array
+                    items: { $ref: '#/components/schemas/Role' }
+                  count: { type: integer }
+    post:
+      summary: Create a role
+      security: [ { DeviceAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                description: { type: string }
+      responses:
+        '201':
+          description: Role created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Role' }
+
+  /roles/{id}:
+    get:
+      summary: Get role by ID
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Role details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Role' }
+    put:
+      summary: Update role
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                description: { type: string }
+      responses:
+        '200':
+          description: Role updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Role' }
+    delete:
+      summary: Delete role
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Role deleted
+
+  /role-permissions/{role_id}/{permission_id}:
+    post:
+      summary: Assign permission to role
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: role_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: permission_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Permission assigned to role
+    delete:
+      summary: Remove permission from role
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: role_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: permission_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Permission removed from role
+
+  /resources:
+    get:
+      summary: List resources
+      security: [ { DeviceAuth: [] } ]
+      responses:
+        '200':
+          description: List of resources
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resources:
+                    type: array
+                    items: { $ref: '#/components/schemas/Resource' }
+                  count: { type: integer }
+    post:
+      summary: Create a resource
+      security: [ { DeviceAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type]
+              properties:
+                name: { type: string }
+                type: { type: string }
+                location: { type: string }
+                department: { type: string }
+                active: { type: boolean }
+      responses:
+        '201':
+          description: Resource created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Resource' }
+
+  /resources/{id}:
+    get:
+      summary: Get resource by ID
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Resource details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Resource' }
+    put:
+      summary: Update resource
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                type: { type: string }
+                location: { type: string }
+                department: { type: string }
+                active: { type: boolean }
+      responses:
+        '200':
+          description: Resource updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Resource' }
+    delete:
+      summary: Delete resource
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Resource deleted
+
+  /permissions:
+    get:
+      summary: List permissions
+      security: [ { DeviceAuth: [] } ]
+      responses:
+        '200':
+          description: List of permissions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  permissions:
+                    type: array
+                    items: { $ref: '#/components/schemas/Permission' }
+                  count: { type: integer }
+    post:
+      summary: Create a permission
+      security: [ { DeviceAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [resource_id, action, effect]
+              properties:
+                resource_id: { type: string, format: uuid }
+                action: { type: string }
+                effect: { type: string }
+      responses:
+        '201':
+          description: Permission created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Permission' }
+
+  /permissions/{id}:
+    get:
+      summary: Get permission by ID
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Permission details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Permission' }
+    delete:
+      summary: Delete permission
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Permission deleted
+
+  /devices:
+    get:
+      summary: List devices
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: user_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: List of devices
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  devices:
+                    type: array
+                    items: { $ref: '#/components/schemas/Device' }
+                  count: { type: integer }
+    post:
+      summary: Register a device
+      security: [ { DeviceAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id, type, identifier]
+              properties:
+                user_id: { type: string, format: uuid }
+                type: { type: string }
+                identifier: { type: string }
+                secret: { type: string }
+                active: { type: boolean }
+      responses:
+        '201':
+          description: Device registered
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Device' }
+
+  /devices/{id}:
+    get:
+      summary: Get device by ID
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Device details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Device' }
+    put:
+      summary: Update device
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type: { type: string }
+                identifier: { type: string }
+                secret: { type: string }
+                active: { type: boolean }
+      responses:
+        '200':
+          description: Device updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Device' }
+    delete:
+      summary: Delete device
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Device deleted 

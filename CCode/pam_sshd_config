@@ -1,0 +1,20 @@
+# PAM configuration for SSH with YubiApp authentication
+# Add this to /etc/pam.d/sshd
+
+# Authentication
+auth       required     pam_sepermit.so
+auth       substack     password-auth
+auth       required     pam_yubiapp.so permission=user:read
+auth       include      postlogin
+
+# Account management
+account    required     pam_nologin.so
+account    include      password-auth
+
+# Password management
+password   include      password-auth
+
+# Session management
+session    required     pam_loginuid.so
+session    include      password-auth
+session    include      postlogin 

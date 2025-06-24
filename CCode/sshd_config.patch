@@ -1,0 +1,13 @@
+# SSH Configuration Patch for YubiApp Environment Variables
+# Add these lines to /etc/ssh/sshd_config
+
+# Allow environment variables to be passed from PAM
+PermitUserEnvironment yes
+
+# Allow specific environment variables
+AcceptEnv YUBI_USER_NAME YUBI_USER_USERNAME YUBI_USER_EMAIL
+
+# Optional: Set default values for these variables
+SetEnv YUBI_USER_NAME=""
+SetEnv YUBI_USER_USERNAME=""
+SetEnv YUBI_USER_EMAIL="" 

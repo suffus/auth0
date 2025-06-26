@@ -98,15 +98,30 @@ CREATE TABLE sessions (
 CREATE TABLE authentication_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    device_id UUID REFERENCES devices(id) ON DELETE SET NULL,
+    user_id UUID NOT NULL REFERENCES users(id),
+    device_id UUID NOT NULL REFERENCES devices(id),
     action_id UUID REFERENCES actions(id) ON DELETE SET NULL,
     type VARCHAR(50) NOT NULL CHECK (type IN ('login', 'logout', 'refresh', 'mfa', 'action')),
     success BOOLEAN NOT NULL,
     ip_address VARCHAR(45),
     user_agent TEXT,
-    details JSONB,
-    json_detail JSONB
+    details JSONB DEFAULT '{}'::jsonb
+);
+
+-- Device registrations table
+CREATE TABLE device_registrations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    
+    registrar_user_id UUID NOT NULL REFERENCES users(id),
+    device_id UUID NOT NULL REFERENCES devices(id),
+    target_user_id UUID REFERENCES users(id),
+    
+    action_type VARCHAR(20) NOT NULL CHECK (action_type IN ('register', 'deregister')),
+    reason TEXT,
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    notes TEXT
 );
 
 -- Junction tables for many-to-many relationships
@@ -188,7 +203,8 @@ INSERT INTO resources (id, name, type, location, department) VALUES
     (uuid_generate_v4(), 'user', 'application', 'internal', 'IT'),
     (uuid_generate_v4(), 'device', 'application', 'internal', 'IT'),
     (uuid_generate_v4(), 'session', 'application', 'internal', 'IT'),
-    (uuid_generate_v4(), 'admin', 'application', 'internal', 'IT');
+    (uuid_generate_v4(), 'admin', 'application', 'internal', 'IT'),
+    (uuid_generate_v4(), 'yubiapp', 'application', 'internal', 'IT');
 
 -- Default permissions
 INSERT INTO permissions (id, resource_id, action, effect) 
@@ -196,6 +212,13 @@ SELECT uuid_generate_v4(), r.id, p.action, p.effect
 FROM resources r
 CROSS JOIN (VALUES ('read', 'allow'), ('write', 'allow')) AS p(action, effect)
 WHERE r.name IN ('user', 'device', 'session', 'admin');
+
+-- Add yubiapp-specific permissions
+INSERT INTO permissions (id, resource_id, action, effect)
+SELECT uuid_generate_v4(), r.id, p.action, p.effect
+FROM resources r
+CROSS JOIN (VALUES ('register-other', 'allow'), ('deregister-other', 'allow')) AS p(action, effect)
+WHERE r.name = 'yubiapp';
 
 -- Default actions
 INSERT INTO actions (id, name, required_permissions) VALUES 

@@ -15,6 +15,7 @@ import (
 
 	"github.com/YubiApp/internal/config"
 	"github.com/YubiApp/internal/database"
+	"github.com/YubiApp/internal/services"
 	"github.com/google/uuid"
 	"github.com/jackc/pgtype"
 	"github.com/spf13/cobra"
@@ -116,6 +117,12 @@ func main() {
 	rootCmd.AddCommand(actionCmd)
 	rootCmd.AddCommand(logActionCmd)
 
+	// Add device registration commands
+	deviceCmd.AddCommand(registerDeviceCmd)
+	deviceCmd.AddCommand(deregisterDeviceCmd)
+	deviceCmd.AddCommand(transferDeviceCmd)
+	deviceCmd.AddCommand(deviceHistoryCmd)
+
 	if err := rootCmd.Execute(); err != nil {
 		// Check if this is a usage error by looking at the error message
 		errMsg := err.Error()
@@ -156,6 +163,7 @@ func initDatabase(cfg config.DatabaseConfig) (*gorm.DB, error) {
 		&database.Device{},
 		&database.Session{},
 		&database.AuthenticationLog{},
+		&database.DeviceRegistration{},
 	); err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
@@ -920,11 +928,14 @@ var assignPermissionToRoleCmd = &cobra.Command{
 		permissionID := args[0]
 		roleIdentifier := args[1]
 
+		fmt.Printf("Looking for permission: %s\n", permissionID)
 		permission, err := FindPermissionByString(db, permissionID)
 		if err != nil {
 			return err
 		}
+		fmt.Printf("Found permission: %s:%s (ID: %s)\n", permission.Resource.Name, permission.Action, permission.ID)
 
+		fmt.Printf("Looking for role: %s\n", roleIdentifier)
 		var role database.Role
 		if _, err := uuid.Parse(roleIdentifier); err == nil {
 			if err := db.Where("id = ?", roleIdentifier).First(&role).Error; err != nil {
@@ -935,21 +946,37 @@ var assignPermissionToRoleCmd = &cobra.Command{
 				return fmt.Errorf("role not found: %w", err)
 			}
 		}
+		fmt.Printf("Found role: %s (ID: %s)\n", role.Name, role.ID)
 
 		// Check if assignment already exists
 		var count int64
 		db.Model(&database.Role{}).Joins("JOIN role_permissions ON roles.id = role_permissions.role_id").
 			Where("roles.id = ? AND role_permissions.permission_id = ?", role.ID, permission.ID).Count(&count)
 		
+		fmt.Printf("Current assignment count: %d\n", count)
 		if count > 0 {
 			return fmt.Errorf("permission %s:%s is already assigned to role %s", 
 				permission.Resource.Name, permission.Action, role.Name)
 		}
 
 		// Assign permission to role
-		if err := db.Model(&role).Association("Permissions").Append(&permission); err != nil {
-			return fmt.Errorf("failed to assign permission to role: %w", err)
+		fmt.Printf("Assigning permission %s to role %s...\n", permission.ID, role.ID)
+		
+		// Use direct SQL insert instead of GORM association
+		result := db.Exec("INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)", role.ID, permission.ID)
+		if result.Error != nil {
+			return fmt.Errorf("failed to assign permission to role: %w", result.Error)
 		}
+		if result.RowsAffected == 0 {
+			return fmt.Errorf("no rows were affected when assigning permission to role")
+		}
+		fmt.Printf("SQL insert affected %d rows\n", result.RowsAffected)
+
+		// Verify the assignment was saved
+		var verifyCount int64
+		db.Model(&database.Role{}).Joins("JOIN role_permissions ON roles.id = role_permissions.role_id").
+			Where("roles.id = ? AND role_permissions.permission_id = ?", role.ID, permission.ID).Count(&verifyCount)
+		fmt.Printf("Verification count after assignment: %d\n", verifyCount)
 
 		fmt.Printf("Successfully assigned permission %s:%s to role %s\n", 
 			permission.Resource.Name, permission.Action, role.Name)
@@ -1372,27 +1399,358 @@ var logActionCmd = &cobra.Command{
 			UserAgent:  "yubiapp-cli",
 		}
 		
-		// Set Details as JSONB
+		// Set Details as JSONB - combine action name and json-detail
 		var detailsJSONB pgtype.JSONB
 		details := map[string]interface{}{"action": action.Name}
+		if jsonDetail != "" {
+			// Merge json-detail into details
+			for key, value := range jsonMap {
+				details[key] = value
+			}
+		}
 		if err := detailsJSONB.Set(details); err != nil {
 			return fmt.Errorf("failed to convert details to JSONB: %w", err)
 		}
 		authLog.Details = detailsJSONB
 		
-		// Set JSONDetail as JSONB
-		if jsonDetail != "" {
-			var jsonDetailJSONB pgtype.JSONB
-			if err := jsonDetailJSONB.Set(jsonMap); err != nil {
-				return fmt.Errorf("failed to convert json-detail to JSONB: %w", err)
-			}
-			authLog.JSONDetail = jsonDetailJSONB
-		}
-		
 		if err := db.Create(&authLog).Error; err != nil {
 			return fmt.Errorf("failed to log action: %w", err)
 		}
 		fmt.Printf("Action '%s' performed and logged for user %s (%s)\n", action.Name, user.Email, user.ID)
+		return nil
+	},
+}
+
+// Device registration commands
+var registerDeviceCmd = &cobra.Command{
+	Use:   "register",
+	Short: "Register a device to a user",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		registrarDeviceCode, _ := cmd.Flags().GetString("registrar-device-code")
+		targetUser, _ := cmd.Flags().GetString("target-user")
+		deviceIdentifier, _ := cmd.Flags().GetString("device-identifier")
+		deviceType, _ := cmd.Flags().GetString("device-type")
+		notes, _ := cmd.Flags().GetString("notes")
+
+		if registrarDeviceCode == "" || targetUser == "" || deviceIdentifier == "" || deviceType == "" {
+			return fmt.Errorf("registrar-device-code, target-user, device-identifier, and device-type are required")
+		}
+
+		// Authenticate registrar
+		if len(registrarDeviceCode) < 12 {
+			return fmt.Errorf("invalid YubiKey OTP format")
+		}
+		registrarDeviceID := registrarDeviceCode[:12]
+		if err := verifyYubikeyOTP(registrarDeviceCode, cfg.Yubikey); err != nil {
+			return fmt.Errorf("OTP verification failed: %w", err)
+		}
+		var registrarDevice database.Device
+		if err := db.Where("type = ? AND identifier = ?", "yubikey", registrarDeviceID).First(&registrarDevice).Error; err != nil {
+			return fmt.Errorf("registrar device not found: %w", err)
+		}
+		var registrarUser database.User
+		if err := db.Preload("Roles.Permissions.Resource").First(&registrarUser, registrarDevice.UserID).Error; err != nil {
+			return fmt.Errorf("registrar user not found: %w", err)
+		}
+		if !registrarUser.Active || !registrarDevice.Active {
+			return fmt.Errorf("registrar user or device is not active")
+		}
+
+		// Check registrar has register-other permission
+		hasPermission := false
+		for _, role := range registrarUser.Roles {
+			for _, perm := range role.Permissions {
+				if perm.Resource.Name == "yubiapp" && perm.Action == "register-other" && perm.Effect == "allow" {
+					hasPermission = true
+					break
+				}
+			}
+			if hasPermission {
+				break
+			}
+		}
+		if !hasPermission {
+			return fmt.Errorf("registrar does not have yubiapp:register-other permission")
+		}
+
+		// Find target user
+		targetUserObj, err := FindUserByString(db, targetUser)
+		if err != nil {
+			return fmt.Errorf("target user not found: %w", err)
+		}
+
+		// Create device registration service
+		deviceRegService := services.NewDeviceRegistrationService(db)
+
+		// Register device
+		registration, err := deviceRegService.RegisterDevice(
+			registrarUser.ID,
+			targetUserObj.ID,
+			deviceIdentifier,
+			deviceType,
+			notes,
+			"",
+			"yubiapp-cli",
+		)
+		if err != nil {
+			return fmt.Errorf("failed to register device: %w", err)
+		}
+
+		fmt.Printf("Device registered successfully:\n")
+		fmt.Printf("  Registration ID: %s\n", registration.ID)
+		fmt.Printf("  Device ID: %s\n", registration.DeviceID)
+		fmt.Printf("  Target User: %s (%s)\n", targetUserObj.Email, targetUserObj.ID)
+		fmt.Printf("  Registrar: %s (%s)\n", registrarUser.Email, registrarUser.ID)
+		fmt.Printf("  Action Type: %s\n", registration.ActionType)
+		fmt.Printf("  Created: %s\n", registration.CreatedAt.Format(time.RFC3339))
+
+		return nil
+	},
+}
+
+var deregisterDeviceCmd = &cobra.Command{
+	Use:   "deregister",
+	Short: "Deregister a device from its current user",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		registrarDeviceCode, _ := cmd.Flags().GetString("registrar-device-code")
+		deviceID, _ := cmd.Flags().GetString("device-id")
+		reason, _ := cmd.Flags().GetString("reason")
+		notes, _ := cmd.Flags().GetString("notes")
+
+		if registrarDeviceCode == "" || deviceID == "" || reason == "" {
+			return fmt.Errorf("registrar-device-code, device-id, and reason are required")
+		}
+
+		// Validate reason
+		validReasons := []string{"user_left", "device_lost", "device_transfer", "administrative"}
+		validReason := false
+		for _, r := range validReasons {
+			if reason == r {
+				validReason = true
+				break
+			}
+		}
+		if !validReason {
+			return fmt.Errorf("reason must be one of: %v", validReasons)
+		}
+
+		// Authenticate registrar
+		if len(registrarDeviceCode) < 12 {
+			return fmt.Errorf("invalid YubiKey OTP format")
+		}
+		registrarDeviceID := registrarDeviceCode[:12]
+		if err := verifyYubikeyOTP(registrarDeviceCode, cfg.Yubikey); err != nil {
+			return fmt.Errorf("OTP verification failed: %w", err)
+		}
+		var registrarDevice database.Device
+		if err := db.Where("type = ? AND identifier = ?", "yubikey", registrarDeviceID).First(&registrarDevice).Error; err != nil {
+			return fmt.Errorf("registrar device not found: %w", err)
+		}
+		var registrarUser database.User
+		if err := db.Preload("Roles.Permissions.Resource").First(&registrarUser, registrarDevice.UserID).Error; err != nil {
+			return fmt.Errorf("registrar user not found: %w", err)
+		}
+		if !registrarUser.Active || !registrarDevice.Active {
+			return fmt.Errorf("registrar user or device is not active")
+		}
+
+		// Check registrar has deregister-other permission
+		hasPermission := false
+		for _, role := range registrarUser.Roles {
+			for _, perm := range role.Permissions {
+				if perm.Resource.Name == "yubiapp" && perm.Action == "deregister-other" && perm.Effect == "allow" {
+					hasPermission = true
+					break
+				}
+			}
+			if hasPermission {
+				break
+			}
+		}
+		if !hasPermission {
+			return fmt.Errorf("registrar does not have yubiapp:deregister-other permission")
+		}
+
+		// Parse device ID
+		deviceUUID, err := uuid.Parse(deviceID)
+		if err != nil {
+			return fmt.Errorf("invalid device ID: %w", err)
+		}
+
+		// Create device registration service
+		deviceRegService := services.NewDeviceRegistrationService(db)
+
+		// Deregister device
+		registration, err := deviceRegService.DeregisterDevice(
+			registrarUser.ID,
+			deviceUUID,
+			reason,
+			notes,
+			"",
+			"yubiapp-cli",
+		)
+		if err != nil {
+			return fmt.Errorf("failed to deregister device: %w", err)
+		}
+
+		fmt.Printf("Device deregistered successfully:\n")
+		fmt.Printf("  Registration ID: %s\n", registration.ID)
+		fmt.Printf("  Device ID: %s\n", registration.DeviceID)
+		fmt.Printf("  Registrar: %s (%s)\n", registrarUser.Email, registrarUser.ID)
+		fmt.Printf("  Action Type: %s\n", registration.ActionType)
+		fmt.Printf("  Reason: %s\n", registration.Reason)
+		fmt.Printf("  Created: %s\n", registration.CreatedAt.Format(time.RFC3339))
+
+		return nil
+	},
+}
+
+var transferDeviceCmd = &cobra.Command{
+	Use:   "transfer",
+	Short: "Transfer a device from one user to another",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		registrarDeviceCode, _ := cmd.Flags().GetString("registrar-device-code")
+		deviceID, _ := cmd.Flags().GetString("device-id")
+		targetUser, _ := cmd.Flags().GetString("target-user")
+		notes, _ := cmd.Flags().GetString("notes")
+
+		if registrarDeviceCode == "" || deviceID == "" || targetUser == "" {
+			return fmt.Errorf("registrar-device-code, device-id, and target-user are required")
+		}
+
+		// Authenticate registrar
+		if len(registrarDeviceCode) < 12 {
+			return fmt.Errorf("invalid YubiKey OTP format")
+		}
+		registrarDeviceID := registrarDeviceCode[:12]
+		if err := verifyYubikeyOTP(registrarDeviceCode, cfg.Yubikey); err != nil {
+			return fmt.Errorf("OTP verification failed: %w", err)
+		}
+		var registrarDevice database.Device
+		if err := db.Where("type = ? AND identifier = ?", "yubikey", registrarDeviceID).First(&registrarDevice).Error; err != nil {
+			return fmt.Errorf("registrar device not found: %w", err)
+		}
+		var registrarUser database.User
+		if err := db.Preload("Roles.Permissions.Resource").First(&registrarUser, registrarDevice.UserID).Error; err != nil {
+			return fmt.Errorf("registrar user not found: %w", err)
+		}
+		if !registrarUser.Active || !registrarDevice.Active {
+			return fmt.Errorf("registrar user or device is not active")
+		}
+
+		// Check registrar has both register-other and deregister-other permissions
+		hasRegisterPermission := false
+		hasDeregisterPermission := false
+		for _, role := range registrarUser.Roles {
+			for _, perm := range role.Permissions {
+				if perm.Resource.Name == "yubiapp" {
+					if perm.Action == "register-other" && perm.Effect == "allow" {
+						hasRegisterPermission = true
+					}
+					if perm.Action == "deregister-other" && perm.Effect == "allow" {
+						hasDeregisterPermission = true
+					}
+				}
+			}
+		}
+		if !hasRegisterPermission {
+			return fmt.Errorf("registrar does not have yubiapp:register-other permission")
+		}
+		if !hasDeregisterPermission {
+			return fmt.Errorf("registrar does not have yubiapp:deregister-other permission")
+		}
+
+		// Find target user
+		targetUserObj, err := FindUserByString(db, targetUser)
+		if err != nil {
+			return fmt.Errorf("target user not found: %w", err)
+		}
+
+		// Parse device ID
+		deviceUUID, err := uuid.Parse(deviceID)
+		if err != nil {
+			return fmt.Errorf("invalid device ID: %w", err)
+		}
+
+		// Create device registration service
+		deviceRegService := services.NewDeviceRegistrationService(db)
+
+		// Transfer device
+		registration, err := deviceRegService.TransferDevice(
+			registrarUser.ID,
+			deviceUUID,
+			targetUserObj.ID,
+			notes,
+			"",
+			"yubiapp-cli",
+		)
+		if err != nil {
+			return fmt.Errorf("failed to transfer device: %w", err)
+		}
+
+		fmt.Printf("Device transferred successfully:\n")
+		fmt.Printf("  Registration ID: %s\n", registration.ID)
+		fmt.Printf("  Device ID: %s\n", registration.DeviceID)
+		fmt.Printf("  Target User: %s (%s)\n", targetUserObj.Email, targetUserObj.ID)
+		fmt.Printf("  Registrar: %s (%s)\n", registrarUser.Email, registrarUser.ID)
+		fmt.Printf("  Action Type: %s\n", registration.ActionType)
+		fmt.Printf("  Created: %s\n", registration.CreatedAt.Format(time.RFC3339))
+
+		return nil
+	},
+}
+
+var deviceHistoryCmd = &cobra.Command{
+	Use:   "history",
+	Short: "Get device registration history",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		deviceID, _ := cmd.Flags().GetString("device-id")
+
+		if deviceID == "" {
+			return fmt.Errorf("device-id is required")
+		}
+
+		// Parse device ID
+		deviceUUID, err := uuid.Parse(deviceID)
+		if err != nil {
+			return fmt.Errorf("invalid device ID: %w", err)
+		}
+
+		// Create device registration service
+		deviceRegService := services.NewDeviceRegistrationService(db)
+
+		// Get device history
+		history, err := deviceRegService.GetDeviceHistory(deviceUUID)
+		if err != nil {
+			return fmt.Errorf("failed to get device history: %w", err)
+		}
+
+		fmt.Printf("Device History for %s:\n\n", deviceID)
+		if len(history) == 0 {
+			fmt.Println("No registration history found.")
+			return nil
+		}
+
+		for i, reg := range history {
+			fmt.Printf("Entry %d:\n", i+1)
+			fmt.Printf("  ID: %s\n", reg.ID)
+			fmt.Printf("  Action Type: %s\n", reg.ActionType)
+			fmt.Printf("  Registrar: %s (%s)\n", reg.RegistrarUser.Email, reg.RegistrarUser.ID)
+			if reg.TargetUserID != nil && reg.TargetUser != nil {
+				fmt.Printf("  Target User: %s (%s)\n", reg.TargetUser.Email, reg.TargetUser.ID)
+			} else {
+				fmt.Printf("  Target User: None (deregistered)\n")
+			}
+			if reg.Reason != "" {
+				fmt.Printf("  Reason: %s\n", reg.Reason)
+			}
+			if reg.Notes != "" {
+				fmt.Printf("  Notes: %s\n", reg.Notes)
+			}
+			fmt.Printf("  Created: %s\n", reg.CreatedAt.Format(time.RFC3339))
+			fmt.Println()
+		}
+
 		return nil
 	},
 }
@@ -1492,4 +1850,34 @@ func init() {
 	logActionCmd.Flags().String("json-detail", "", "JSON string for action detail (optional)")
 	logActionCmd.MarkFlagRequired("device-code")
 	logActionCmd.MarkFlagRequired("action")
+
+	registerDeviceCmd.Flags().String("registrar-device-code", "", "YubiKey OTP code of the registrar")
+	registerDeviceCmd.Flags().String("target-user", "", "Email of the target user")
+	registerDeviceCmd.Flags().String("device-identifier", "", "Identifier of the device to register")
+	registerDeviceCmd.Flags().String("device-type", "", "Type of the device to register")
+	registerDeviceCmd.Flags().String("notes", "", "Notes for the registration")
+	registerDeviceCmd.MarkFlagRequired("registrar-device-code")
+	registerDeviceCmd.MarkFlagRequired("target-user")
+	registerDeviceCmd.MarkFlagRequired("device-identifier")
+	registerDeviceCmd.MarkFlagRequired("device-type")
+
+	deregisterDeviceCmd.Flags().String("registrar-device-code", "", "YubiKey OTP code of the registrar")
+	deregisterDeviceCmd.Flags().String("device-id", "", "ID of the device to deregister")
+	deregisterDeviceCmd.Flags().String("reason", "", "Reason for deregistration")
+	deregisterDeviceCmd.Flags().String("notes", "", "Notes for deregistration")
+	deregisterDeviceCmd.MarkFlagRequired("registrar-device-code")
+	deregisterDeviceCmd.MarkFlagRequired("device-id")
+	deregisterDeviceCmd.MarkFlagRequired("reason")
+
+	transferDeviceCmd.Flags().String("registrar-device-code", "", "YubiKey OTP code of the registrar")
+	transferDeviceCmd.Flags().String("device-id", "", "ID of the device to transfer")
+	transferDeviceCmd.Flags().String("target-user", "", "Email of the target user")
+	transferDeviceCmd.Flags().String("notes", "", "Notes for the transfer")
+	transferDeviceCmd.MarkFlagRequired("registrar-device-code")
+	transferDeviceCmd.MarkFlagRequired("device-id")
+	transferDeviceCmd.MarkFlagRequired("target-user")
+	transferDeviceCmd.MarkFlagRequired("notes")
+
+	deviceHistoryCmd.Flags().String("device-id", "", "ID of the device to get history for")
+	deviceHistoryCmd.MarkFlagRequired("device-id")
 }

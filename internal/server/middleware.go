@@ -39,16 +39,18 @@ func authMiddleware(authService *services.AuthService, requiredPermission string
 		}
 
 		// Authenticate user and check permissions
-		user, err := authService.AuthenticateDevice(deviceType, authCode, requiredPermission)
+		user, device, err := authService.AuthenticateDevice(deviceType, authCode, requiredPermission)
 		if err != nil {
 			errorResponse(c, http.StatusUnauthorized, fmt.Sprintf("Authentication failed: %v", err))
 			c.Abort()
 			return
 		}
 
-		// Store user in context for handlers to use
+		// Store user and device in context for handlers to use
 		c.Set("user", user)
 		c.Set("user_id", user.ID)
+		c.Set("device", device)
+		c.Set("device_id", device.ID)
 
 		// Set IP address and user agent for logging
 		c.Set("client_ip", c.ClientIP())

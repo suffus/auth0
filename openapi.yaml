@@ -163,6 +163,234 @@ paths:
         '404':
           description: Action not found
 
+  /devices/register:
+    post:
+      summary: Register a device to a user
+      security: [ { DeviceAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - target_user_id
+                - device_identifier
+                - device_type
+              properties:
+                target_user_id:
+                  type: string
+                  description: UUID or email of the target user
+                  example: "john.doe@example.com"
+                device_identifier:
+                  type: string
+                  description: Device identifier (e.g., YubiKey public ID)
+                  example: "cccccbvjbvdbijlrttlkfugllrrutgighrlnuibkbllj"
+                device_type:
+                  type: string
+                  enum: [yubikey, totp, sms, email]
+                  description: Type of device being registered
+                  example: "yubikey"
+                notes:
+                  type: string
+                  description: Optional notes about the registration
+                  example: "New YubiKey for John"
+      responses:
+        '200':
+          description: Device registered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  message: { type: string }
+                  registration:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      device_id: { type: string, format: uuid }
+                      registrar:
+                        type: object
+                        properties:
+                          id: { type: string, format: uuid }
+                          email: { type: string }
+                      target_user_id: { type: string, format: uuid }
+                      action_type: { type: string }
+                      created_at: { type: string, format: date-time }
+        '401':
+          description: Authentication failed
+        '403':
+          description: Permission denied (requires yubiapp:register-other)
+        '400':
+          description: Invalid request body
+        '404':
+          description: Target user not found
+
+  /devices/{device_id}/deregister:
+    delete:
+      summary: Deregister a device from its current user
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+          description: ID of the device to deregister
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - reason
+              properties:
+                reason:
+                  type: string
+                  enum: [user_left, device_lost, device_transfer, administrative]
+                  description: Reason for deregistration
+                  example: "user_left"
+                notes:
+                  type: string
+                  description: Optional notes about the deregistration
+                  example: "User left the organization"
+      responses:
+        '200':
+          description: Device deregistered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  message: { type: string }
+                  deregistration:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      device_id: { type: string, format: uuid }
+                      registrar:
+                        type: object
+                        properties:
+                          id: { type: string, format: uuid }
+                          email: { type: string }
+                      action_type: { type: string }
+                      reason: { type: string }
+                      created_at: { type: string, format: date-time }
+        '401':
+          description: Authentication failed
+        '403':
+          description: Permission denied (requires yubiapp:deregister-other)
+        '400':
+          description: Invalid request body
+        '404':
+          description: Device not found
+
+  /devices/{device_id}/transfer:
+    post:
+      summary: Transfer a device from one user to another
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+          description: ID of the device to transfer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - target_user_id
+              properties:
+                target_user_id:
+                  type: string
+                  description: UUID or email of the target user
+                  example: "jane.doe@example.com"
+                notes:
+                  type: string
+                  description: Optional notes about the transfer
+                  example: "Transferring device to Jane"
+      responses:
+        '200':
+          description: Device transferred successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  message: { type: string }
+                  transfer:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      device_id: { type: string, format: uuid }
+                      registrar:
+                        type: object
+                        properties:
+                          id: { type: string, format: uuid }
+                          email: { type: string }
+                      target_user_id: { type: string, format: uuid }
+                      action_type: { type: string }
+                      created_at: { type: string, format: date-time }
+        '401':
+          description: Authentication failed
+        '403':
+          description: Permission denied (requires both yubiapp:register-other and yubiapp:deregister-other)
+        '400':
+          description: Invalid request body
+        '404':
+          description: Device or target user not found
+
+  /devices/{device_id}/history:
+    get:
+      summary: Get device registration history
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+          description: ID of the device to get history for
+      responses:
+        '200':
+          description: Device history retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  device_id: { type: string, format: uuid }
+                  history:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        action_type: { type: string }
+                        registrar:
+                          type: object
+                          properties:
+                            id: { type: string, format: uuid }
+                            email: { type: string }
+                        target_user:
+                          type: object
+                          properties:
+                            id: { type: string, format: uuid }
+                            email: { type: string }
+                        reason: { type: string }
+                        notes: { type: string }
+                        ip_address: { type: string }
+                        created_at: { type: string, format: date-time }
+        '401':
+          description: Authentication failed
+        '404':
+          description: Device not found
+
   /users:
     get:
       summary: List users

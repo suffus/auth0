@@ -110,6 +110,25 @@ type AuthenticationLog struct {
 	Success    bool
 	IPAddress  string
 	UserAgent  string
-	Details    pgtype.JSONB `gorm:"type:jsonb"`
-	JSONDetail pgtype.JSONB `gorm:"type:jsonb"`
+	Details    pgtype.JSONB `gorm:"type:jsonb;default:'{}'::jsonb"`
+}
+
+type DeviceRegistration struct {
+	ID              uuid.UUID `gorm:"type:uuid;primary_key;"`
+	CreatedAt       time.Time
+
+	RegistrarUserID uuid.UUID `gorm:"type:uuid"`
+	RegistrarUser   User      `gorm:"foreignKey:RegistrarUserID"`
+
+	DeviceID        uuid.UUID `gorm:"type:uuid"`
+	Device          Device    `gorm:"foreignKey:DeviceID"`
+
+	TargetUserID    *uuid.UUID `gorm:"type:uuid"` // NULL for deregistration
+	TargetUser      *User      `gorm:"foreignKey:TargetUserID"`
+
+	ActionType      string `gorm:"type:varchar(20);check:action_type IN ('register', 'deregister')"`
+	Reason          string
+	IPAddress       string
+	UserAgent       string
+	Notes           string
 } 

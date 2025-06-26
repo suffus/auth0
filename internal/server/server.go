@@ -15,16 +15,17 @@ import (
 )
 
 type Server struct {
-	config            *config.Config
-	db                *gorm.DB
-	authService       *services.AuthService
-	userService       *services.UserService
-	roleService       *services.RoleService
-	resourceService   *services.ResourceService
-	permissionService *services.PermissionService
-	deviceService     *services.DeviceService
-	actionService     *services.ActionService
-	httpServer        *http.Server
+	config                *config.Config
+	db                    *gorm.DB
+	authService           *services.AuthService
+	userService           *services.UserService
+	roleService           *services.RoleService
+	resourceService       *services.ResourceService
+	permissionService     *services.PermissionService
+	deviceService         *services.DeviceService
+	actionService         *services.ActionService
+	deviceRegService      *services.DeviceRegistrationService
+	httpServer            *http.Server
 }
 
 // New creates a new server instance
@@ -43,6 +44,7 @@ func New(cfg *config.Config) *Server {
 	permissionService := services.NewPermissionService(db)
 	deviceService := services.NewDeviceService(db)
 	actionService := services.NewActionService(db)
+	deviceRegService := services.NewDeviceRegistrationService(db)
 
 	// Set Gin mode
 	if !cfg.Server.Debug {
@@ -50,7 +52,7 @@ func New(cfg *config.Config) *Server {
 	}
 
 	// Setup router
-	router := setupRouter(authService, userService, roleService, resourceService, permissionService, deviceService, actionService)
+	router := setupRouter(authService, userService, roleService, resourceService, permissionService, deviceService, actionService, deviceRegService)
 
 	// Create HTTP server
 	httpServer := &http.Server{
@@ -62,16 +64,17 @@ func New(cfg *config.Config) *Server {
 	}
 
 	return &Server{
-		config:            cfg,
-		db:                db,
-		authService:       authService,
-		userService:       userService,
-		roleService:       roleService,
-		resourceService:   resourceService,
-		permissionService: permissionService,
-		deviceService:     deviceService,
-		actionService:     actionService,
-		httpServer:        httpServer,
+		config:                cfg,
+		db:                    db,
+		authService:           authService,
+		userService:           userService,
+		roleService:           roleService,
+		resourceService:       resourceService,
+		permissionService:     permissionService,
+		deviceService:         deviceService,
+		actionService:         actionService,
+		deviceRegService:      deviceRegService,
+		httpServer:            httpServer,
 	}
 }
 
@@ -106,6 +109,7 @@ func initDatabase(cfg config.DatabaseConfig) (*gorm.DB, error) {
 		&database.Device{},
 		&database.Session{},
 		&database.AuthenticationLog{},
+		&database.DeviceRegistration{},
 	); err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}

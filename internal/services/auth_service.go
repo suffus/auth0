@@ -31,7 +31,8 @@ func NewAuthService(db *gorm.DB, config *config.Config) *AuthService {
 }
 
 // AuthenticateDevice authenticates a user using a device and checks permissions
-func (s *AuthService) AuthenticateDevice(deviceType, authCode, requiredPermission string) (*database.User, error) {
+// Returns both user and device information
+func (s *AuthService) AuthenticateDevice(deviceType, authCode, requiredPermission string) (*database.User, *database.Device, error) {
 	var device *database.Device
 	var err error
 
@@ -45,32 +46,41 @@ func (s *AuthService) AuthenticateDevice(deviceType, authCode, requiredPermissio
 	case "email":
 		device, err = s.authenticateEmail(authCode)
 	default:
-		return nil, fmt.Errorf("unsupported device type: %s", deviceType)
+		return nil, nil, fmt.Errorf("unsupported device type: %s", deviceType)
 	}
 
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Get user associated with the device
 	var user database.User
 	if err := s.db.Preload("Roles.Permissions.Resource").First(&user, device.UserID).Error; err != nil {
-		return nil, fmt.Errorf("failed to find user: %w", err)
+		return nil, nil, fmt.Errorf("failed to find user: %w", err)
+	}
+
+	details := map[string]interface{}{
+		"user": user.Username,
+		"device_id": device.ID,
+		"device_type": device.Type,
+		"auth_code": authCode,
+		"type": "mfa",
+		"permission_checked": requiredPermission,
 	}
 
 	// Check if user and device are active
 	if !user.Active {
-		return nil, fmt.Errorf("user is not active")
+		return nil, nil, fmt.Errorf("user is not active")
 	}
 	if !device.Active {
-		return nil, fmt.Errorf("device is not active")
+		return nil, nil, fmt.Errorf("device is not active")
 	}
 
-	// If no permission required, just return the user
+	// If no permission required, just return the user and device
 	if requiredPermission == "" {
 		s.deviceService.UpdateDeviceLastUsed(device.ID)
-		s.logAuthentication(device, &user, true, requiredPermission, "")
-		return &user, nil
+		s.logAuthentication(device, &user, true, requiredPermission, "", details)
+		return &user, device, nil
 	}
 
 	// Check if user has the required permission
@@ -84,24 +94,24 @@ func (s *AuthService) AuthenticateDevice(deviceType, authCode, requiredPermissio
 		// It's not a UUID, try to parse as resource:action format
 		parts := strings.Split(requiredPermission, ":")
 		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid permission format: %s (expected 'resource:action' or permission UUID)", requiredPermission)
+			return nil, nil, fmt.Errorf("invalid permission format: %s (expected 'resource:action' or permission UUID)", requiredPermission)
 		}
 		resourceName, action := parts[0], parts[1]
 		hasPermission = s.checkUserHasPermissionByResourceAction(&user, resourceName, action)
 	}
 
 	if !hasPermission {
-		s.logAuthentication(device, &user, false, requiredPermission, "permission denied")
-		return nil, fmt.Errorf("permission denied: %s", requiredPermission)
+		s.logAuthentication(device, &user, false, requiredPermission, "permission denied", details)
+		return nil, nil, fmt.Errorf("permission denied: %s", requiredPermission)
 	}
 
 	// Update device last used timestamp
 	s.deviceService.UpdateDeviceLastUsed(device.ID)
 
 	// Log successful authentication
-	s.logAuthentication(device, &user, true, requiredPermission, "")
+	s.logAuthentication(device, &user, true, requiredPermission, "", details)
 
-	return &user, nil
+	return &user, device, nil
 }
 
 // checkUserHasPermissionByID checks if a user has a specific permission by UUID
@@ -222,34 +232,16 @@ func (s *AuthService) verifyYubikeyOTP(otp string) error {
 }
 
 // logAuthentication logs the authentication attempt
-func (s *AuthService) logAuthentication(device *database.Device, user *database.User, success bool, permissionChecked, errorMsg string) {
-	authLog := database.AuthenticationLog{
-		ID:        uuid.New(),
-		UserID:    user.ID,
-		DeviceID:  device.ID,
-		Type:      "mfa", // Use 'mfa' to comply with DB constraint
-		Success:   success,
-		IPAddress: "", // Will be set by web handlers
-		UserAgent: "", // Will be set by web handlers
-	}
-	
-	// Set Details as JSONB
-	details := map[string]interface{}{
-		"device_type":        device.Type,
+func (s *AuthService) logAuthentication(device *database.Device, user *database.User, success bool, permissionChecked, errorMsg string, details map[string]interface{}) {
+	s.LogAuthentication(map[string]interface{}{
+		"user_id": user.ID,
+		"device_id": device.ID,
+		"type": "mfa",
+		"success": success,
 		"permission_checked": permissionChecked,
-	}
-	if errorMsg != "" {
-		details["error"] = errorMsg
-	}
-	
-	var detailsJSONB pgtype.JSONB
-	if err := detailsJSONB.Set(details); err != nil {
-		// Log error but continue - this shouldn't fail for valid maps
-		return
-	}
-	authLog.Details = detailsJSONB
-
-	s.db.Create(&authLog)
+		"error_msg": errorMsg,
+		"details": details,
+	})
 }
 
 // LogAuthentication logs an authentication event with custom data
@@ -281,28 +273,37 @@ func (s *AuthService) LogAuthentication(logData map[string]interface{}) error {
 	if userAgent, ok := logData["user_agent"].(string); ok {
 		authLog.UserAgent = userAgent
 	}
-	
-	// Set Details as JSONB
 	var detailsJSONB pgtype.JSONB
-	details := make(map[string]interface{})
-	if err := detailsJSONB.Set(details); err != nil {
-		return fmt.Errorf("failed to convert details to JSONB: %w", err)
+	// Set Details as JSONB only if we have data
+	if details, ok := logData["details"].(map[string]interface{}); ok && len(details) > 0 {
+		if err := detailsJSONB.Set(details); err != nil {
+			return fmt.Errorf("failed to convert details to JSONB: %w", err)
+		}
+	}
+	if detailsJSONB.Status != pgtype.Present {
+		detailsJSONB = pgtype.JSONB{
+			Bytes: []byte("{}"),
+			Status: pgtype.Present,
+		}
 	}
 	authLog.Details = detailsJSONB
-	
-	// Set JSONDetail as JSONB
-	if jsonDetail, ok := logData["json_detail"].(map[string]interface{}); ok {
-		var jsonDetailJSONB pgtype.JSONB
-		if err := jsonDetailJSONB.Set(jsonDetail); err != nil {
-			return fmt.Errorf("failed to convert json_detail to JSONB: %w", err)
-		}
-		authLog.JSONDetail = jsonDetailJSONB
-	}
-
 	// Set type to "action" for action events
-	if logData["type"] == "action" {
-		authLog.Type = "action"
-	}
+	authLog.Type = logData["type"].(string)
 
 	return s.db.Create(&authLog).Error
+}
+
+// CheckUserPermissionByResourceAction checks if a user has a specific permission by resource name and action
+func (s *AuthService) CheckUserPermissionByResourceAction(userID uuid.UUID, resourceName, action string) (bool, error) {
+	var user database.User
+	if err := s.db.Preload("Roles.Permissions.Resource").First(&user, userID).Error; err != nil {
+		return false, err
+	}
+
+	return s.checkUserHasPermissionByResourceAction(&user, resourceName, action), nil
+}
+
+// GetDB returns the database instance (for use in handlers)
+func (s *AuthService) GetDB() *gorm.DB {
+	return s.db
 } 

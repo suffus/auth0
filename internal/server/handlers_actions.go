@@ -35,7 +35,7 @@ func handlePerformAction(authService *services.AuthService, actionService *servi
 		}
 
 		// Authenticate the user using the device code
-		user, err := authService.AuthenticateDevice("yubikey", deviceCode, "")
+		user, device, err := authService.AuthenticateDevice("yubikey", deviceCode, "")
 		if err != nil {
 			errorResponse(c, http.StatusUnauthorized, "Authentication failed: "+err.Error())
 			return
@@ -68,12 +68,17 @@ func handlePerformAction(authService *services.AuthService, actionService *servi
 		}
 
 		// Get device ID from the authentication
-		var deviceID uuid.UUID
-		// Note: This would need to be implemented in the auth service to return device info
-		// For now, we'll use a zero UUID as placeholder
-		deviceID = uuid.Nil
+		deviceID := device.ID
 
 		// Log the action in AuthenticationLog
+		details := map[string]interface{}{
+			"action": actionName,
+		}
+		// Merge request body into details
+		for key, value := range requestBody {
+			details[key] = value
+		}
+		
 		logEntry := map[string]interface{}{
 			"user_id":     user.ID,
 			"device_id":   deviceID,
@@ -82,7 +87,7 @@ func handlePerformAction(authService *services.AuthService, actionService *servi
 			"success":     true,
 			"ip_address":  c.ClientIP(),
 			"user_agent":  c.GetHeader("User-Agent"),
-			"json_detail": requestBody,
+			"details":     details,
 		}
 
 		// Create authentication log entry

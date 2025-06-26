@@ -13,6 +13,7 @@ func setupRouter(
 	permissionService *services.PermissionService,
 	deviceService *services.DeviceService,
 	actionService *services.ActionService,
+	deviceRegService *services.DeviceRegistrationService,
 ) *gin.Engine {
 	router := gin.Default()
 
@@ -95,6 +96,15 @@ func setupRouter(
 			devices.DELETE("/:id", authMiddleware(authService, "yubiapp:write"), handleDeleteDevice(deviceService))
 		}
 
+		// Device registration endpoints
+		deviceReg := api.Group("/devices")
+		{
+			deviceReg.POST("/register", handleRegisterDevice(authService, deviceRegService))
+			deviceReg.DELETE("/:device_id/deregister", handleDeregisterDevice(authService, deviceRegService))
+			deviceReg.POST("/:device_id/transfer", handleTransferDevice(authService, deviceRegService))
+			deviceReg.GET("/:device_id/history", handleGetDeviceHistory(authService, deviceRegService))
+		}
+
 		// Action management (requires yubiapp:read permission)
 		actions := api.Group("/actions")
 		actions.Use(authMiddleware(authService, "yubiapp:read"))
@@ -128,7 +138,7 @@ func handleDeviceAuth(authService *services.AuthService) gin.HandlerFunc {
 		// Store nonce in context for response functions to use
 		setRequestNonce(c, req.Nonce)
 
-		user, err := authService.AuthenticateDevice(req.DeviceType, req.AuthCode, req.Permission)
+		user, device, err := authService.AuthenticateDevice(req.DeviceType, req.AuthCode, req.Permission)
 		if err != nil {
 			errorResponse(c, 401, err.Error())
 			return
@@ -154,6 +164,11 @@ func handleDeviceAuth(authService *services.AuthService) gin.HandlerFunc {
 				"last_name":  user.LastName,
 				"active":     user.Active,
 				"roles":      roles,
+			},
+			"device": gin.H{
+				"id":         device.ID,
+				"type":       device.Type,
+				"identifier": device.Identifier,
 			},
 		})
 	}

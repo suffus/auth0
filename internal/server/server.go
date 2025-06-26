@@ -23,6 +23,7 @@ type Server struct {
 	resourceService   *services.ResourceService
 	permissionService *services.PermissionService
 	deviceService     *services.DeviceService
+	actionService     *services.ActionService
 	httpServer        *http.Server
 }
 
@@ -41,6 +42,7 @@ func New(cfg *config.Config) *Server {
 	resourceService := services.NewResourceService(db)
 	permissionService := services.NewPermissionService(db)
 	deviceService := services.NewDeviceService(db)
+	actionService := services.NewActionService(db)
 
 	// Set Gin mode
 	if !cfg.Server.Debug {
@@ -48,7 +50,7 @@ func New(cfg *config.Config) *Server {
 	}
 
 	// Setup router
-	router := setupRouter(authService, userService, roleService, resourceService, permissionService, deviceService)
+	router := setupRouter(authService, userService, roleService, resourceService, permissionService, deviceService, actionService)
 
 	// Create HTTP server
 	httpServer := &http.Server{
@@ -68,6 +70,7 @@ func New(cfg *config.Config) *Server {
 		resourceService:   resourceService,
 		permissionService: permissionService,
 		deviceService:     deviceService,
+		actionService:     actionService,
 		httpServer:        httpServer,
 	}
 }
@@ -99,6 +102,7 @@ func initDatabase(cfg config.DatabaseConfig) (*gorm.DB, error) {
 		&database.Role{},
 		&database.Resource{},
 		&database.Permission{},
+		&database.Action{},
 		&database.Device{},
 		&database.Session{},
 		&database.AuthenticationLog{},

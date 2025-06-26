@@ -3,3 +3,4 @@ cmd/api/config
 cmd/cli/config
 cmd/cli/yubikey-cli
 cmd/api/api
+api

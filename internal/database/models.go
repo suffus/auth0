@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgtype"
 	"gorm.io/gorm"
 )
 
@@ -58,6 +59,14 @@ type Permission struct {
 	Effect     string // "allow" or "deny"
 }
 
+type Action struct {
+	ID                  uuid.UUID     `gorm:"type:uuid;primary_key;"`
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	Name                string        `gorm:"uniqueIndex"`
+	RequiredPermissions pgtype.JSONB  `gorm:"type:jsonb"`
+}
+
 type Device struct {
 	ID        uuid.UUID `gorm:"type:uuid;primary_key;"`
 	CreatedAt time.Time
@@ -94,11 +103,13 @@ type AuthenticationLog struct {
 	ID        uuid.UUID `gorm:"type:uuid;primary_key;"`
 	CreatedAt time.Time
 
-	UserID    uuid.UUID `gorm:"type:uuid"`
-	DeviceID  uuid.UUID `gorm:"type:uuid"`
-	Type      string    // "login", "logout", "refresh", "mfa"
-	Success   bool
-	IPAddress string
-	UserAgent string
-	Details   map[string]interface{} `gorm:"type:jsonb"`
+	UserID     uuid.UUID `gorm:"type:uuid"`
+	DeviceID   uuid.UUID `gorm:"type:uuid"`
+	ActionID   uuid.UUID `gorm:"type:uuid"`
+	Type       string    // "login", "logout", "refresh", "mfa", "action"
+	Success    bool
+	IPAddress  string
+	UserAgent  string
+	Details    pgtype.JSONB `gorm:"type:jsonb"`
+	JSONDetail pgtype.JSONB `gorm:"type:jsonb"`
 } 

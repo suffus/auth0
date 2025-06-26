@@ -54,6 +54,15 @@ CREATE TABLE permissions (
     effect VARCHAR(50) NOT NULL CHECK (effect IN ('allow', 'deny'))
 );
 
+-- Actions table
+CREATE TABLE actions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    name VARCHAR(255) UNIQUE NOT NULL,
+    required_permissions JSONB DEFAULT '[]'::jsonb
+);
+
 -- Devices table
 CREATE TABLE devices (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -91,11 +100,13 @@ CREATE TABLE authentication_logs (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     device_id UUID REFERENCES devices(id) ON DELETE SET NULL,
-    type VARCHAR(50) NOT NULL CHECK (type IN ('login', 'logout', 'refresh', 'mfa')),
+    action_id UUID REFERENCES actions(id) ON DELETE SET NULL,
+    type VARCHAR(50) NOT NULL CHECK (type IN ('login', 'logout', 'refresh', 'mfa', 'action')),
     success BOOLEAN NOT NULL,
     ip_address VARCHAR(45),
     user_agent TEXT,
-    details JSONB
+    details JSONB,
+    json_detail JSONB
 );
 
 -- Junction tables for many-to-many relationships
@@ -136,9 +147,12 @@ CREATE INDEX idx_sessions_active ON sessions(active);
 
 CREATE INDEX idx_authentication_logs_user_id ON authentication_logs(user_id);
 CREATE INDEX idx_authentication_logs_device_id ON authentication_logs(device_id);
+CREATE INDEX idx_authentication_logs_action_id ON authentication_logs(action_id);
 CREATE INDEX idx_authentication_logs_created_at ON authentication_logs(created_at);
 CREATE INDEX idx_authentication_logs_type ON authentication_logs(type);
 CREATE INDEX idx_authentication_logs_success ON authentication_logs(success);
+
+CREATE INDEX idx_actions_name ON actions(name);
 
 CREATE INDEX idx_user_roles_user_id ON user_roles(user_id);
 CREATE INDEX idx_user_roles_role_id ON user_roles(role_id);
@@ -159,6 +173,7 @@ $$ language 'plpgsql';
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_roles_updated_at BEFORE UPDATE ON roles FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_permissions_updated_at BEFORE UPDATE ON permissions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_actions_updated_at BEFORE UPDATE ON actions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_devices_updated_at BEFORE UPDATE ON devices FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_sessions_updated_at BEFORE UPDATE ON sessions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -181,6 +196,16 @@ SELECT uuid_generate_v4(), r.id, p.action, p.effect
 FROM resources r
 CROSS JOIN (VALUES ('read', 'allow'), ('write', 'allow')) AS p(action, effect)
 WHERE r.name IN ('user', 'device', 'session', 'admin');
+
+-- Default actions
+INSERT INTO actions (id, name, required_permissions) VALUES 
+    (uuid_generate_v4(), 'ssh-login', '["ssh:login"]'),
+    (uuid_generate_v4(), 'app-install', '["app:install"]'),
+    (uuid_generate_v4(), 'app-uninstall', '["app:uninstall"]'),
+    (uuid_generate_v4(), 'permission-grant', '["permission:grant"]'),
+    (uuid_generate_v4(), 'permission-revoke', '["permission:revoke"]'),
+    (uuid_generate_v4(), 'user-signin', '[]'),
+    (uuid_generate_v4(), 'user-signout', '[]');
 
 -- Assign permissions to roles
 -- Admin gets all permissions

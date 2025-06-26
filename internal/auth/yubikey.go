@@ -11,6 +11,7 @@ import (
 
 	"github.com/YubiApp/internal/database"
 	"github.com/google/uuid"
+	"github.com/jackc/pgtype"
 	"gorm.io/gorm"
 )
 
@@ -94,10 +95,18 @@ func (s *YubikeyService) AuthenticateYubikey(ctx context.Context, otp, requiredP
 		Success:   true,
 		IPAddress: "", // Should be set by handler
 		UserAgent: "", // Should be set by handler
-		Details: map[string]interface{}{
-			"permission_checked": requiredPermission,
-		},
 	}
+	
+	// Set Details as JSONB
+	var detailsJSONB pgtype.JSONB
+	details := map[string]interface{}{
+		"permission_checked": requiredPermission,
+	}
+	if err := detailsJSONB.Set(details); err != nil {
+		return nil, fmt.Errorf("failed to convert details to JSONB: %w", err)
+	}
+	authLog.Details = detailsJSONB
+	
 	s.db.Create(&authLog)
 
 	return &user, nil

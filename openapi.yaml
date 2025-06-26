@@ -64,6 +64,17 @@ components:
         action: { type: string }
         effect: { type: string }
         created_at: { type: string, format: date-time }
+    Action:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        required_permissions:
+          type: array
+          items: { type: string }
+          description: Array of permission strings in format "resource:action"
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
     Device:
       type: object
       properties:
@@ -112,6 +123,45 @@ paths:
                   user: { $ref: '#/components/schemas/User' }
         '401':
           description: Authentication failed
+
+  /auth/action/{action_name}:
+    post:
+      summary: Perform an action with device-based authentication
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: action_name
+          in: path
+          required: true
+          schema: { type: string }
+          description: Name of the action to perform (e.g., "ssh-login", "app-install")
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Action-specific data (structure varies by action)
+              example:
+                resource: "aws-cloud-west/server101"
+                login: "support"
+      responses:
+        '200':
+          description: Action performed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  action: { type: string }
+                  user_id: { type: string, format: uuid }
+                  success: { type: boolean }
+                  message: { type: string }
+        '401':
+          description: Authentication failed
+        '403':
+          description: Permission denied
+        '404':
+          description: Action not found
 
   /users:
     get:
@@ -512,6 +562,99 @@ paths:
       responses:
         '200':
           description: Permission deleted
+
+  /actions:
+    get:
+      summary: List actions
+      security: [ { DeviceAuth: [] } ]
+      responses:
+        '200':
+          description: List of actions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  actions:
+                    type: array
+                    items: { $ref: '#/components/schemas/Action' }
+                  count: { type: integer }
+    post:
+      summary: Create an action
+      security: [ { DeviceAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                required_permissions:
+                  type: array
+                  items: { type: string }
+                  description: Array of permission strings in format "resource:action"
+      responses:
+        '201':
+          description: Action created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Action' }
+
+  /actions/{id}:
+    get:
+      summary: Get action by ID
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Action details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Action' }
+    put:
+      summary: Update action
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                required_permissions:
+                  type: array
+                  items: { type: string }
+                  description: Array of permission strings in format "resource:action"
+      responses:
+        '200':
+          description: Action updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Action' }
+    delete:
+      summary: Delete action
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Action deleted
 
   /devices:
     get:

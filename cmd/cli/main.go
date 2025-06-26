@@ -3,7 +3,7 @@ package main
 import (
 	"crypto/rand"
 	"encoding/hex"
-	//"encoding/json"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +16,7 @@ import (
 	"github.com/YubiApp/internal/config"
 	"github.com/YubiApp/internal/database"
 	"github.com/google/uuid"
+	"github.com/jackc/pgtype"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/postgres"
@@ -112,6 +113,8 @@ func main() {
 	rootCmd.AddCommand(deviceCmd)
 	rootCmd.AddCommand(assignCmd)
 	rootCmd.AddCommand(authenticateCmd)
+	rootCmd.AddCommand(actionCmd)
+	rootCmd.AddCommand(logActionCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		// Check if this is a usage error by looking at the error message
@@ -149,6 +152,7 @@ func initDatabase(cfg config.DatabaseConfig) (*gorm.DB, error) {
 		&database.Role{},
 		&database.Resource{},
 		&database.Permission{},
+		&database.Action{},
 		&database.Device{},
 		&database.Session{},
 		&database.AuthenticationLog{},
@@ -1105,14 +1109,290 @@ var authenticateYubikeyCmd = &cobra.Command{
 			Success:   hasPermission,
 			IPAddress: "", // CLI doesn't have IP context
 			UserAgent: "yubiapp-cli",
-			Details: map[string]interface{}{
-				"permission_checked": fmt.Sprintf("%s:%s", permission.Resource.Name, permission.Action),
-				"permission_id":      permissionID,
-				"device_type":        "yubikey",
-			},
 		}
+		
+		// Set Details as JSONB
+		var detailsJSONB pgtype.JSONB
+		details := map[string]interface{}{
+			"permission_checked": fmt.Sprintf("%s:%s", permission.Resource.Name, permission.Action),
+			"permission_id":      permissionID,
+			"device_type":        "yubikey",
+		}
+		if err := detailsJSONB.Set(details); err != nil {
+			return fmt.Errorf("failed to convert details to JSONB: %w", err)
+		}
+		authLog.Details = detailsJSONB
+		
 		db.Create(&authLog)
 
+		return nil
+	},
+}
+
+// Action management commands
+var actionCmd = &cobra.Command{
+	Use:   "action",
+	Short: "Manage actions",
+	Long:  "Create, update, delete, and list user actions",
+}
+
+var listActionsCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List all actions",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		var actions []database.Action
+		if err := db.Find(&actions).Error; err != nil {
+			return fmt.Errorf("failed to fetch actions: %w", err)
+		}
+		fmt.Printf("Found %d actions:\n\n", len(actions))
+		for _, action := range actions {
+			// Extract string array from JSONB
+			var permissions []string
+			if action.RequiredPermissions.Status == pgtype.Present {
+				if err := action.RequiredPermissions.AssignTo(&permissions); err != nil {
+					permissions = []string{"<error reading permissions>"}
+				}
+			} else {
+				permissions = []string{}
+			}
+			
+			fmt.Printf("ID: %s\n  Name: %s\n  Required Permissions: %v\n  Created: %s\n  Updated: %s\n\n",
+				action.ID, action.Name, permissions, action.CreatedAt.Format(time.RFC3339), action.UpdatedAt.Format(time.RFC3339))
+		}
+		return nil
+	},
+}
+
+var getActionCmd = &cobra.Command{
+	Use:   "get",
+	Short: "Get an action by ID or name",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		identifier := args[0]
+		var action database.Action
+		if _, err := uuid.Parse(identifier); err == nil {
+			if err := db.First(&action, "id = ?", identifier).Error; err != nil {
+				return fmt.Errorf("action not found: %w", err)
+			}
+		} else {
+			if err := db.First(&action, "name = ?", identifier).Error; err != nil {
+				return fmt.Errorf("action not found: %w", err)
+			}
+		}
+		
+		// Extract string array from JSONB
+		var permissions []string
+		if action.RequiredPermissions.Status == pgtype.Present {
+			if err := action.RequiredPermissions.AssignTo(&permissions); err != nil {
+				permissions = []string{"<error reading permissions>"}
+			}
+		} else {
+			permissions = []string{}
+		}
+		
+		fmt.Printf("ID: %s\nName: %s\nRequired Permissions: %v\nCreated: %s\nUpdated: %s\n",
+			action.ID, action.Name, permissions, action.CreatedAt.Format(time.RFC3339), action.UpdatedAt.Format(time.RFC3339))
+		return nil
+	},
+}
+
+var createActionCmd = &cobra.Command{
+	Use:   "create",
+	Short: "Create a new action",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name, _ := cmd.Flags().GetString("name")
+		requiredPerms, _ := cmd.Flags().GetStringSlice("required-permission")
+		if requiredPerms == nil {
+			requiredPerms = []string{}
+		}
+		
+		// Convert string slice to JSONB
+		var jsonb pgtype.JSONB
+		if err := jsonb.Set(requiredPerms); err != nil {
+			return fmt.Errorf("failed to convert permissions to JSONB: %w", err)
+		}
+		
+		action := database.Action{
+			ID: uuid.New(),
+			Name: name,
+			RequiredPermissions: jsonb,
+		}
+		if err := db.Create(&action).Error; err != nil {
+			return fmt.Errorf("failed to create action: %w", err)
+		}
+		fmt.Printf("Action created: %s (%s)\n", action.Name, action.ID)
+		return nil
+	},
+}
+
+var updateActionCmd = &cobra.Command{
+	Use:   "update",
+	Short: "Update an action",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		identifier := args[0]
+		name, _ := cmd.Flags().GetString("name")
+		requiredPerms, _ := cmd.Flags().GetStringSlice("required-permission")
+		var action database.Action
+		if _, err := uuid.Parse(identifier); err == nil {
+			if err := db.First(&action, "id = ?", identifier).Error; err != nil {
+				return fmt.Errorf("action not found: %w", err)
+			}
+		} else {
+			if err := db.First(&action, "name = ?", identifier).Error; err != nil {
+				return fmt.Errorf("action not found: %w", err)
+			}
+		}
+		if name != "" {
+			action.Name = name
+		}
+		if requiredPerms != nil {
+			// Convert string slice to JSONB
+			var jsonb pgtype.JSONB
+			if err := jsonb.Set(requiredPerms); err != nil {
+				return fmt.Errorf("failed to convert permissions to JSONB: %w", err)
+			}
+			action.RequiredPermissions = jsonb
+		}
+		if err := db.Save(&action).Error; err != nil {
+			return fmt.Errorf("failed to update action: %w", err)
+		}
+		fmt.Printf("Action updated: %s (%s)\n", action.Name, action.ID)
+		return nil
+	},
+}
+
+var deleteActionCmd = &cobra.Command{
+	Use:   "delete",
+	Short: "Delete an action",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		identifier := args[0]
+		var action database.Action
+		if _, err := uuid.Parse(identifier); err == nil {
+			if err := db.First(&action, "id = ?", identifier).Error; err != nil {
+				return fmt.Errorf("action not found: %w", err)
+			}
+		} else {
+			if err := db.First(&action, "name = ?", identifier).Error; err != nil {
+				return fmt.Errorf("action not found: %w", err)
+			}
+		}
+		if err := db.Delete(&action).Error; err != nil {
+			return fmt.Errorf("failed to delete action: %w", err)
+		}
+		fmt.Printf("Action deleted: %s (%s)\n", action.Name, action.ID)
+		return nil
+	},
+}
+
+// Log a user action (simulate /auth/action/{action_name})
+var logActionCmd = &cobra.Command{
+	Use:   "log-action",
+	Short: "Log a user action (with device authentication and permission check)",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		deviceCode, _ := cmd.Flags().GetString("device-code")
+		actionName, _ := cmd.Flags().GetString("action")
+		jsonDetail, _ := cmd.Flags().GetString("json-detail")
+
+		if deviceCode == "" || actionName == "" {
+			return fmt.Errorf("device-code and action are required")
+		}
+
+		// Authenticate device (yubikey only for now)
+		if len(deviceCode) < 12 {
+			return fmt.Errorf("invalid YubiKey OTP format")
+		}
+		deviceID := deviceCode[:12]
+		if err := verifyYubikeyOTP(deviceCode, cfg.Yubikey); err != nil {
+			return fmt.Errorf("OTP verification failed: %w", err)
+		}
+		var device database.Device
+		if err := db.Where("type = ? AND identifier = ?", "yubikey", deviceID).First(&device).Error; err != nil {
+			return fmt.Errorf("device not found: %w", err)
+		}
+		var user database.User
+		if err := db.Preload("Roles.Permissions.Resource").First(&user, device.UserID).Error; err != nil {
+			return fmt.Errorf("user not found: %w", err)
+		}
+		if !user.Active || !device.Active {
+			return fmt.Errorf("user or device is not active")
+		}
+
+		// Find the action
+		var action database.Action
+		if err := db.Where("name = ?", actionName).First(&action).Error; err != nil {
+			return fmt.Errorf("action not found: %w", err)
+		}
+
+		// Check permissions
+		userPerms := make(map[string]bool)
+		for _, role := range user.Roles {
+			for _, perm := range role.Permissions {
+				key := fmt.Sprintf("%s:%s", perm.Resource.Name, perm.Action)
+				if perm.Effect == "allow" {
+					userPerms[key] = true
+				} else if perm.Effect == "deny" {
+					userPerms[key] = false
+				}
+			}
+		}
+		
+		// Extract required permissions from JSONB
+		var requiredPerms []string
+		if action.RequiredPermissions.Status == pgtype.Present {
+			if err := action.RequiredPermissions.AssignTo(&requiredPerms); err != nil {
+				return fmt.Errorf("failed to read action permissions: %w", err)
+			}
+		}
+		
+		for _, reqPerm := range requiredPerms {
+			if !userPerms[reqPerm] {
+				return fmt.Errorf("user does not have required permission: %s", reqPerm)
+			}
+		}
+
+		// Parse jsonDetail
+		var jsonMap map[string]interface{}
+		if jsonDetail != "" {
+			if err := json.Unmarshal([]byte(jsonDetail), &jsonMap); err != nil {
+				return fmt.Errorf("invalid json-detail: %w", err)
+			}
+		}
+
+		// Log the action
+		authLog := database.AuthenticationLog{
+			ID:         uuid.New(),
+			UserID:     user.ID,
+			DeviceID:   device.ID,
+			ActionID:   action.ID,
+			Type:       "action",
+			Success:    true,
+			IPAddress:  "",
+			UserAgent:  "yubiapp-cli",
+		}
+		
+		// Set Details as JSONB
+		var detailsJSONB pgtype.JSONB
+		details := map[string]interface{}{"action": action.Name}
+		if err := detailsJSONB.Set(details); err != nil {
+			return fmt.Errorf("failed to convert details to JSONB: %w", err)
+		}
+		authLog.Details = detailsJSONB
+		
+		// Set JSONDetail as JSONB
+		if jsonDetail != "" {
+			var jsonDetailJSONB pgtype.JSONB
+			if err := jsonDetailJSONB.Set(jsonMap); err != nil {
+				return fmt.Errorf("failed to convert json-detail to JSONB: %w", err)
+			}
+			authLog.JSONDetail = jsonDetailJSONB
+		}
+		
+		if err := db.Create(&authLog).Error; err != nil {
+			return fmt.Errorf("failed to log action: %w", err)
+		}
+		fmt.Printf("Action '%s' performed and logged for user %s (%s)\n", action.Name, user.Email, user.ID)
 		return nil
 	},
 }
@@ -1194,4 +1474,22 @@ func init() {
 	resourceCmd.AddCommand(deleteResourceCmd)
 
 	authenticateCmd.AddCommand(authenticateYubikeyCmd)
+	actionCmd.AddCommand(listActionsCmd)
+	actionCmd.AddCommand(getActionCmd)
+	actionCmd.AddCommand(createActionCmd)
+	actionCmd.AddCommand(updateActionCmd)
+	actionCmd.AddCommand(deleteActionCmd)
+
+	createActionCmd.Flags().String("name", "", "Action name")
+	createActionCmd.Flags().StringSlice("required-permission", []string{}, "Required permission(s) in resource:action format (repeatable)")
+	createActionCmd.MarkFlagRequired("name")
+
+	updateActionCmd.Flags().String("name", "", "Action name")
+	updateActionCmd.Flags().StringSlice("required-permission", []string{}, "Required permission(s) in resource:action format (repeatable)")
+
+	logActionCmd.Flags().String("device-code", "", "YubiKey OTP code")
+	logActionCmd.Flags().String("action", "", "Action name to perform")
+	logActionCmd.Flags().String("json-detail", "", "JSON string for action detail (optional)")
+	logActionCmd.MarkFlagRequired("device-code")
+	logActionCmd.MarkFlagRequired("action")
 }

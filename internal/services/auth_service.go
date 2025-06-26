@@ -13,6 +13,7 @@ import (
 	"github.com/YubiApp/internal/database"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"github.com/jackc/pgtype"
 )
 
 type AuthService struct {
@@ -230,15 +231,78 @@ func (s *AuthService) logAuthentication(device *database.Device, user *database.
 		Success:   success,
 		IPAddress: "", // Will be set by web handlers
 		UserAgent: "", // Will be set by web handlers
-		Details: map[string]interface{}{
-			"device_type":        device.Type,
-			"permission_checked": permissionChecked,
-		},
 	}
-
+	
+	// Set Details as JSONB
+	details := map[string]interface{}{
+		"device_type":        device.Type,
+		"permission_checked": permissionChecked,
+	}
 	if errorMsg != "" {
-		authLog.Details["error"] = errorMsg
+		details["error"] = errorMsg
 	}
+	
+	var detailsJSONB pgtype.JSONB
+	if err := detailsJSONB.Set(details); err != nil {
+		// Log error but continue - this shouldn't fail for valid maps
+		return
+	}
+	authLog.Details = detailsJSONB
 
 	s.db.Create(&authLog)
+}
+
+// LogAuthentication logs an authentication event with custom data
+func (s *AuthService) LogAuthentication(logData map[string]interface{}) error {
+	authLog := database.AuthenticationLog{
+		ID:        uuid.New(),
+		Type:      "action", // Use 'action' for action events
+		Success:   true,
+		IPAddress: "",
+		UserAgent: "",
+	}
+
+	// Extract fields from logData
+	if userID, ok := logData["user_id"].(uuid.UUID); ok {
+		authLog.UserID = userID
+	}
+	if deviceID, ok := logData["device_id"].(uuid.UUID); ok {
+		authLog.DeviceID = deviceID
+	}
+	if actionID, ok := logData["action_id"].(uuid.UUID); ok {
+		authLog.ActionID = actionID
+	}
+	if success, ok := logData["success"].(bool); ok {
+		authLog.Success = success
+	}
+	if ipAddress, ok := logData["ip_address"].(string); ok {
+		authLog.IPAddress = ipAddress
+	}
+	if userAgent, ok := logData["user_agent"].(string); ok {
+		authLog.UserAgent = userAgent
+	}
+	
+	// Set Details as JSONB
+	var detailsJSONB pgtype.JSONB
+	details := make(map[string]interface{})
+	if err := detailsJSONB.Set(details); err != nil {
+		return fmt.Errorf("failed to convert details to JSONB: %w", err)
+	}
+	authLog.Details = detailsJSONB
+	
+	// Set JSONDetail as JSONB
+	if jsonDetail, ok := logData["json_detail"].(map[string]interface{}); ok {
+		var jsonDetailJSONB pgtype.JSONB
+		if err := jsonDetailJSONB.Set(jsonDetail); err != nil {
+			return fmt.Errorf("failed to convert json_detail to JSONB: %w", err)
+		}
+		authLog.JSONDetail = jsonDetailJSONB
+	}
+
+	// Set type to "action" for action events
+	if logData["type"] == "action" {
+		authLog.Type = "action"
+	}
+
+	return s.db.Create(&authLog).Error
 } 

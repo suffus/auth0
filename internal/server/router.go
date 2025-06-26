@@ -12,6 +12,7 @@ func setupRouter(
 	resourceService *services.ResourceService,
 	permissionService *services.PermissionService,
 	deviceService *services.DeviceService,
+	actionService *services.ActionService,
 ) *gin.Engine {
 	router := gin.Default()
 
@@ -20,6 +21,9 @@ func setupRouter(
 	{
 		// Authentication endpoint
 		api.POST("/auth/device", handleDeviceAuth(authService))
+
+		// Action endpoint - POST /auth/action/${action_name}
+		api.POST("/auth/action/:action_name", handlePerformAction(authService, actionService))
 
 		// User management (requires yubiapp:read permission)
 		users := api.Group("/users")
@@ -89,6 +93,17 @@ func setupRouter(
 			devices.GET("/:id", handleGetDevice(deviceService))
 			devices.PUT("/:id", authMiddleware(authService, "yubiapp:write"), handleUpdateDevice(deviceService))
 			devices.DELETE("/:id", authMiddleware(authService, "yubiapp:write"), handleDeleteDevice(deviceService))
+		}
+
+		// Action management (requires yubiapp:read permission)
+		actions := api.Group("/actions")
+		actions.Use(authMiddleware(authService, "yubiapp:read"))
+		{
+			actions.GET("", handleListActions(actionService))
+			actions.POST("", authMiddleware(authService, "yubiapp:write"), handleCreateAction(actionService))
+			actions.GET("/:id", handleGetAction(actionService))
+			actions.PUT("/:id", authMiddleware(authService, "yubiapp:write"), handleUpdateAction(actionService))
+			actions.DELETE("/:id", authMiddleware(authService, "yubiapp:write"), handleDeleteAction(actionService))
 		}
 	}
 

@@ -53,7 +53,7 @@ Register a device to a target user.
 
 ### 2. Deregister Device
 
-**DELETE** `/api/v1/devices/{device_id}/deregister`
+**POST** `/api/v1/devices/{device_id}/deregister`
 
 Deregister a device from its current user.
 
@@ -243,7 +243,7 @@ curl -X POST http://localhost:8080/api/v1/devices/register \
 
 **Deregister a device:**
 ```bash
-curl -X DELETE http://localhost:8080/api/v1/devices/550e8400-e29b-41d4-a716-446655440001/deregister \
+curl -X POST http://localhost:8080/api/v1/devices/550e8400-e29b-41d4-a716-446655440001/deregister \
   -H "Authorization: yubikey:cccccbvjbvdbijlrttlkfugllrrutgighrlnuibkbllj" \
   -H "Content-Type: application/json" \
   -d '{
@@ -305,6 +305,19 @@ curl -X GET http://localhost:8080/api/v1/devices/550e8400-e29b-41d4-a716-4466554
   --device-id="550e8400-e29b-41d4-a716-446655440001"
 ```
 
+## API Design Notes
+
+### HTTP Method Choices
+- **POST for Deregister**: Uses POST instead of DELETE to comply with OpenAPI specification, as DELETE operations should not have request bodies
+- **Consistent POST Operations**: All modification operations (register, deregister, transfer) use POST for consistency
+- **RESTful Considerations**: While not strictly RESTful, this design prioritizes OpenAPI compliance and practical usability
+
+### Request Body Requirements
+- **Deregister**: Requires request body for reason and notes (hence POST method)
+- **Register**: Requires request body for target user and device details
+- **Transfer**: Requires request body for target user and notes
+- **History**: No request body needed (GET method)
+
 ## Notes
 
 - All timestamps are in ISO 8601 format (UTC)
@@ -312,4 +325,5 @@ curl -X GET http://localhost:8080/api/v1/devices/550e8400-e29b-41d4-a716-4466554
 - User identification accepts both UUID and email addresses
 - All operations are logged with complete audit information
 - Transfer operations require both register and deregister permissions
-- Device history is ordered by creation time (newest first) 
+- Device history is ordered by creation time (newest first)
+- API design prioritizes OpenAPI compliance and practical usability over strict RESTful principles 

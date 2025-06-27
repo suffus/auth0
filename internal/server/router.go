@@ -100,7 +100,7 @@ func setupRouter(
 		deviceReg := api.Group("/devices")
 		{
 			deviceReg.POST("/register", handleRegisterDevice(authService, deviceRegService))
-			deviceReg.DELETE("/:device_id/deregister", handleDeregisterDevice(authService, deviceRegService))
+			deviceReg.POST("/:device_id/deregister", handleDeregisterDevice(authService, deviceRegService))
 			deviceReg.POST("/:device_id/transfer", handleTransferDevice(authService, deviceRegService))
 			deviceReg.GET("/:device_id/history", handleGetDeviceHistory(authService, deviceRegService))
 		}

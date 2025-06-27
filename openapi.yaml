@@ -228,7 +228,7 @@ paths:
           description: Target user not found
 
   /devices/{device_id}/deregister:
-    delete:
+    post:
       summary: Deregister a device from its current user
       security: [ { DeviceAuth: [] } ]
       parameters:

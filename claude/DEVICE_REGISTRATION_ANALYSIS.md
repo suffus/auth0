@@ -63,9 +63,13 @@ CREATE TABLE device_registrations (
 
 #### Endpoints
 1. **POST** `/api/v1/devices/register` - Register device to user
-2. **DELETE** `/api/v1/devices/{device_id}/deregister` - Deregister device
+2. **POST** `/api/v1/devices/{device_id}/deregister` - Deregister device from user
 3. **POST** `/api/v1/devices/{device_id}/transfer` - Transfer device between users
 4. **GET** `/api/v1/devices/{device_id}/history` - View device registration history
+
+**Note on HTTP Methods:**
+- **POST for Deregister**: Uses POST instead of DELETE to comply with OpenAPI specification, as DELETE operations should not have request bodies
+- **Consistent POST Operations**: All modification operations (register, deregister, transfer) use POST for consistency
 
 #### Authentication
 - **Device-Based**: Uses YubiKey OTP in Authorization header
@@ -179,6 +183,20 @@ func (s *DeviceRegistrationService) GetDeviceHistory(...) ([]DeviceRegistration,
 - **Invalid Reason**: 400 Bad Request
 - **Permission Denied**: 403 Forbidden
 
+## API Compliance
+
+### OpenAPI Specification Compliance
+- **POST for Deregister**: Uses POST instead of DELETE to comply with OpenAPI spec
+- **Request Bodies**: All modification operations include request bodies for data
+- **Consistent Patterns**: All endpoints follow consistent request/response patterns
+- **Proper Documentation**: Complete OpenAPI documentation with examples
+
+### RESTful Design Considerations
+- **Resource-Oriented**: Endpoints represent device registration resources
+- **Stateful Operations**: Registration operations change device state
+- **Audit Trail**: Complete history of all operations
+- **Idempotency**: Operations are designed to be idempotent where possible
+
 ## Testing Considerations
 
 ### Unit Tests
@@ -248,6 +266,7 @@ The device registration system provides a comprehensive solution for managing de
 - **Reliability**: Transactional operations with comprehensive error handling
 - **Observability**: Complete audit trail for compliance and troubleshooting
 - **Usability**: Both API and CLI interfaces for different use cases
+- **Compliance**: Follows OpenAPI specification and RESTful design principles
 
 ### Success Criteria
 - [x] Users can register devices to other users with proper permissions
@@ -256,4 +275,5 @@ The device registration system provides a comprehensive solution for managing de
 - [x] All operations are logged with complete audit information
 - [x] API and CLI interfaces are available and functional
 - [x] Error handling is comprehensive and user-friendly
-- [x] Security model is robust and follows least privilege principle 
+- [x] Security model is robust and follows least privilege principle
+- [x] API design complies with OpenAPI specification 

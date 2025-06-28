@@ -1,8 +1,10 @@
 package server
 
 import (
-	"github.com/gin-gonic/gin"
+	"fmt"
+
 	"github.com/YubiApp/internal/services"
+	"github.com/gin-gonic/gin"
 )
 
 func setupRouter(
@@ -16,6 +18,22 @@ func setupRouter(
 	deviceRegService *services.DeviceRegistrationService,
 ) *gin.Engine {
 	router := gin.Default()
+
+	// Add CORS middleware
+	router.Use(func(c *gin.Context) {
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+		c.Header("Access-Control-Expose-Headers", "Content-Length")
+		c.Header("Access-Control-Allow-Credentials", "true")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+
+		c.Next()
+	})
 
 	// API v1 routes
 	api := router.Group("/api/v1")
@@ -91,18 +109,17 @@ func setupRouter(
 		{
 			devices.GET("", handleListDevices(deviceService))
 			devices.POST("", authMiddleware(authService, "yubiapp:write"), handleCreateDevice(deviceService))
+
+			// Device registration endpoints (action first, then ID)
+			devices.POST("/register", handleRegisterDevice(authService, deviceRegService))
+			devices.POST("/deregister/:device_id", handleDeregisterDevice(authService, deviceRegService))
+			devices.POST("/transfer/:device_id", handleTransferDevice(authService, deviceRegService))
+			devices.GET("/history/:device_id", handleGetDeviceHistory(authService, deviceRegService))
+
+			// Generic :id routes
 			devices.GET("/:id", handleGetDevice(deviceService))
 			devices.PUT("/:id", authMiddleware(authService, "yubiapp:write"), handleUpdateDevice(deviceService))
 			devices.DELETE("/:id", authMiddleware(authService, "yubiapp:write"), handleDeleteDevice(deviceService))
-		}
-
-		// Device registration endpoints
-		deviceReg := api.Group("/devices")
-		{
-			deviceReg.POST("/register", handleRegisterDevice(authService, deviceRegService))
-			deviceReg.POST("/:device_id/deregister", handleDeregisterDevice(authService, deviceRegService))
-			deviceReg.POST("/:device_id/transfer", handleTransferDevice(authService, deviceRegService))
-			deviceReg.GET("/:device_id/history", handleGetDeviceHistory(authService, deviceRegService))
 		}
 
 		// Action management (requires yubiapp:read permission)
@@ -133,6 +150,22 @@ func handleDeviceAuth(authService *services.AuthService) gin.HandlerFunc {
 		if err := c.ShouldBindJSON(&req); err != nil {
 			errorResponse(c, 400, err.Error())
 			return
+		}
+
+		// Validate device-specific requirements
+		if req.DeviceType == "yubikey" {
+			if len(req.AuthCode) != 44 {
+				errorResponse(c, 400, fmt.Sprintf("Invalid YubiKey OTP length. Expected 44 characters, got %d. Please ensure your YubiKey is properly inserted and tap the button to generate a complete OTP.", len(req.AuthCode)))
+				return
+			}
+
+			// Validate that it contains only valid hex characters
+			for _, char := range req.AuthCode {
+				if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')) {
+					errorResponse(c, 400, "Invalid YubiKey OTP format. OTP should contain only hexadecimal characters (0-9, a-f, A-F).")
+					return
+				}
+			}
 		}
 
 		// Store nonce in context for response functions to use
@@ -176,4 +209,4 @@ func handleDeviceAuth(authService *services.AuthService) gin.HandlerFunc {
 
 // Middleware and handlers will be implemented in separate files:
 // - middleware.go
-// - handlers.go 
+// - handlers.go

@@ -26,6 +26,10 @@ A comprehensive authentication and authorization service supporting multiple aut
 ```
 YubiApp/
 ├── cmd/                           # Application entry points
+│   ├── api/                      # REST API server
+│   │   ├── main.go               # API server main application
+│   │   ├── config                # API server configuration
+│   │   └── api                   # Compiled API server binary
 │   └── cli/                      # Command-line interface
 │       ├── main.go               # CLI main application
 │       ├── action.sh             # CLI action script
@@ -135,6 +139,10 @@ go run cmd/cli/main.go migrate
 
 ### 5. Start the Server:
 ```bash
+# Option 1: Start API server directly
+go run cmd/api/main.go
+
+# Option 2: Start server via CLI
 go run cmd/cli/main.go serve
 ```
 

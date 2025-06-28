@@ -330,7 +330,7 @@ func handleGetDeviceHistory(authService *services.AuthService, deviceRegService 
 		}
 
 		// Authenticate the user (any authenticated user can view device history)
-		user, _, err := authService.AuthenticateDevice("yubikey", deviceCode, "")
+		_, _, err = authService.AuthenticateDevice("yubikey", deviceCode, "")
 		if err != nil {
 			errorResponse(c, http.StatusUnauthorized, "Authentication failed: "+err.Error())
 			return
@@ -347,7 +347,7 @@ func handleGetDeviceHistory(authService *services.AuthService, deviceRegService 
 		historyList := make([]gin.H, len(history))
 		for i, reg := range history {
 			historyList[i] = gin.H{
-				"id":        reg.ID,
+				"id":          reg.ID,
 				"action_type": reg.ActionType,
 				"registrar": gin.H{
 					"id":    reg.RegistrarUser.ID,
@@ -375,4 +375,4 @@ func handleGetDeviceHistory(authService *services.AuthService, deviceRegService 
 			"history":   historyList,
 		})
 	}
-} 
+}

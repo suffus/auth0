@@ -391,6 +391,67 @@ var deleteUserCmd = &cobra.Command{
 	},
 }
 
+var updateUserCmd = &cobra.Command{
+	Use:   "update",
+	Short: "Update a user",
+	Long:  "Update a user's details by ID, email, or username",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return fmt.Errorf("please provide a user ID, email, or username")
+		}
+
+		identifier := args[0]
+		user, err := FindUserByString(db, identifier)
+		if err != nil {
+			return err
+		}
+
+		// Get update flags
+		email, _ := cmd.Flags().GetString("email")
+		username, _ := cmd.Flags().GetString("username")
+		password, _ := cmd.Flags().GetString("password")
+		firstName, _ := cmd.Flags().GetString("first-name")
+		lastName, _ := cmd.Flags().GetString("last-name")
+		active, _ := cmd.Flags().GetBool("active")
+
+		// Update fields if provided
+		updates := make(map[string]interface{})
+		if email != "" {
+			updates["email"] = email
+		}
+		if username != "" {
+			updates["username"] = username
+		}
+		if password != "" {
+			hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+			if err != nil {
+				return fmt.Errorf("failed to hash password: %w", err)
+			}
+			updates["password"] = string(hashedPassword)
+		}
+		if firstName != "" {
+			updates["first_name"] = firstName
+		}
+		if lastName != "" {
+			updates["last_name"] = lastName
+		}
+		if cmd.Flags().Changed("active") {
+			updates["active"] = active
+		}
+
+		if len(updates) == 0 {
+			return fmt.Errorf("no fields to update")
+		}
+
+		if err := db.Model(&user).Updates(updates).Error; err != nil {
+			return fmt.Errorf("failed to update user: %w", err)
+		}
+
+		fmt.Printf("User updated successfully: %s (%s)\n", user.Email, user.ID)
+		return nil
+	},
+}
+
 // Role management commands
 var roleCmd = &cobra.Command{
 	Use:   "role",
@@ -481,6 +542,54 @@ var deleteRoleCmd = &cobra.Command{
 		}
 
 		fmt.Printf("Role deleted successfully: %s (%s)\n", role.Name, role.ID)
+		return nil
+	},
+}
+
+var updateRoleCmd = &cobra.Command{
+	Use:   "update",
+	Short: "Update a role",
+	Long:  "Update a role's details by ID or name",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return fmt.Errorf("please provide a role ID or name")
+		}
+
+		identifier := args[0]
+		var role database.Role
+
+		if _, err := uuid.Parse(identifier); err == nil {
+			if err := db.Where("id = ?", identifier).First(&role).Error; err != nil {
+				return fmt.Errorf("role not found: %w", err)
+			}
+		} else {
+			if err := db.Where("name = ?", identifier).First(&role).Error; err != nil {
+				return fmt.Errorf("role not found: %w", err)
+			}
+		}
+
+		// Get update flags
+		name, _ := cmd.Flags().GetString("name")
+		description, _ := cmd.Flags().GetString("description")
+
+		// Update fields if provided
+		updates := make(map[string]interface{})
+		if name != "" {
+			updates["name"] = name
+		}
+		if description != "" {
+			updates["description"] = description
+		}
+
+		if len(updates) == 0 {
+			return fmt.Errorf("no fields to update")
+		}
+
+		if err := db.Model(&role).Updates(updates).Error; err != nil {
+			return fmt.Errorf("failed to update role: %w", err)
+		}
+
+		fmt.Printf("Role updated successfully: %s (%s)\n", role.Name, role.ID)
 		return nil
 	},
 }
@@ -580,6 +689,59 @@ var deletePermissionCmd = &cobra.Command{
 	},
 }
 
+var updatePermissionCmd = &cobra.Command{
+	Use:   "update",
+	Short: "Update a permission",
+	Long:  "Update a permission's details by ID or resource:action format",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return fmt.Errorf("please provide a permission ID or resource:action format")
+		}
+
+		identifier := args[0]
+		permission, err := FindPermissionByString(db, identifier)
+		if err != nil {
+			return err
+		}
+
+		// Get update flags
+		resourceID, _ := cmd.Flags().GetString("resource")
+		action, _ := cmd.Flags().GetString("action")
+		effect, _ := cmd.Flags().GetString("effect")
+
+		// Update fields if provided
+		updates := make(map[string]interface{})
+		if resourceID != "" {
+			resource, err := FindResourceByString(db, resourceID)
+			if err != nil {
+				return err
+			}
+			updates["resource_id"] = resource.ID
+		}
+		if action != "" {
+			updates["action"] = action
+		}
+		if effect != "" {
+			if effect != "allow" && effect != "deny" {
+				return fmt.Errorf("effect must be 'allow' or 'deny'")
+			}
+			updates["effect"] = effect
+		}
+
+		if len(updates) == 0 {
+			return fmt.Errorf("no fields to update")
+		}
+
+		if err := db.Model(&permission).Updates(updates).Error; err != nil {
+			return fmt.Errorf("failed to update permission: %w", err)
+		}
+
+		fmt.Printf("Permission updated successfully: %s:%s (%s)\n", 
+			permission.Resource.Name, permission.Action, permission.Effect)
+		return nil
+	},
+}
+
 // Resource management commands
 var resourceCmd = &cobra.Command{
 	Use:   "resource",
@@ -597,6 +759,11 @@ var createResourceCmd = &cobra.Command{
 		location, _ := cmd.Flags().GetString("location")
 		department, _ := cmd.Flags().GetString("department")
 		active, _ := cmd.Flags().GetBool("active")
+
+		// Validate resource name - no colons allowed to avoid ambiguity in permission format
+		if strings.Contains(name, ":") {
+			return fmt.Errorf("resource name cannot contain colons (':') to avoid ambiguity in permission format")
+		}
 
 		// Validate resource type
 		validTypes := []string{"server", "service", "database", "application"}
@@ -681,6 +848,75 @@ var deleteResourceCmd = &cobra.Command{
 		}
 
 		fmt.Printf("Resource deleted successfully: %s (%s)\n", resource.Name, resource.ID)
+		return nil
+	},
+}
+
+var updateResourceCmd = &cobra.Command{
+	Use:   "update",
+	Short: "Update a resource",
+	Long:  "Update a resource's details by ID or name",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return fmt.Errorf("please provide a resource ID or name")
+		}
+
+		identifier := args[0]
+		resource, err := FindResourceByString(db, identifier)
+		if err != nil {
+			return err
+		}
+
+		// Get update flags
+		name, _ := cmd.Flags().GetString("name")
+		resourceType, _ := cmd.Flags().GetString("type")
+		location, _ := cmd.Flags().GetString("location")
+		department, _ := cmd.Flags().GetString("department")
+		active, _ := cmd.Flags().GetBool("active")
+
+		// Update fields if provided
+		updates := make(map[string]interface{})
+		if name != "" {
+			// Validate resource name - no colons allowed to avoid ambiguity in permission format
+			if strings.Contains(name, ":") {
+				return fmt.Errorf("resource name cannot contain colons (':') to avoid ambiguity in permission format")
+			}
+			updates["name"] = name
+		}
+		if resourceType != "" {
+			// Validate resource type
+			validTypes := []string{"server", "service", "database", "application"}
+			validType := false
+			for _, t := range validTypes {
+				if resourceType == t {
+					validType = true
+					break
+				}
+			}
+			if !validType {
+				return fmt.Errorf("resource type must be one of: %s", strings.Join(validTypes, ", "))
+			}
+			updates["type"] = resourceType
+		}
+		if location != "" {
+			updates["location"] = location
+		}
+		if department != "" {
+			updates["department"] = department
+		}
+		if cmd.Flags().Changed("active") {
+			updates["active"] = active
+		}
+
+		if len(updates) == 0 {
+			return fmt.Errorf("no fields to update")
+		}
+
+		if err := db.Model(&resource).Updates(updates).Error; err != nil {
+			return fmt.Errorf("failed to update resource: %w", err)
+		}
+
+		fmt.Printf("Resource updated successfully: %s (%s)\n", resource.Name, resource.ID)
 		return nil
 	},
 }
@@ -822,6 +1058,79 @@ var deleteDeviceCmd = &cobra.Command{
 		}
 
 		fmt.Printf("Device deleted successfully: %s (%s) for user %s\n", 
+			device.Type, device.ID, device.User.Email)
+		return nil
+	},
+}
+
+var updateDeviceCmd = &cobra.Command{
+	Use:   "update",
+	Short: "Update a device",
+	Long:  "Update a device's details by ID",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return fmt.Errorf("please provide a device ID")
+		}
+
+		deviceID := args[0]
+		if _, err := uuid.Parse(deviceID); err != nil {
+			return fmt.Errorf("invalid device ID format")
+		}
+
+		var device database.Device
+		if err := db.Preload("User").Where("id = ?", deviceID).First(&device).Error; err != nil {
+			return fmt.Errorf("device not found: %w", err)
+		}
+
+		// Get update flags
+		userID, _ := cmd.Flags().GetString("user-id")
+		deviceType, _ := cmd.Flags().GetString("type")
+		identifier, _ := cmd.Flags().GetString("identifier")
+		secret, _ := cmd.Flags().GetString("secret")
+		active, _ := cmd.Flags().GetBool("active")
+
+		// Update fields if provided
+		updates := make(map[string]interface{})
+		if userID != "" {
+			user, err := FindUserByString(db, userID)
+			if err != nil {
+				return err
+			}
+			updates["user_id"] = user.ID
+		}
+		if deviceType != "" {
+			validTypes := []string{"yubikey", "totp", "sms", "email"}
+			validType := false
+			for _, t := range validTypes {
+				if deviceType == t {
+					validType = true
+					break
+				}
+			}
+			if !validType {
+				return fmt.Errorf("device type must be one of: %s", strings.Join(validTypes, ", "))
+			}
+			updates["type"] = deviceType
+		}
+		if identifier != "" {
+			updates["identifier"] = identifier
+		}
+		if secret != "" {
+			updates["secret"] = secret
+		}
+		if cmd.Flags().Changed("active") {
+			updates["active"] = active
+		}
+
+		if len(updates) == 0 {
+			return fmt.Errorf("no fields to update")
+		}
+
+		if err := db.Model(&device).Updates(updates).Error; err != nil {
+			return fmt.Errorf("failed to update device: %w", err)
+		}
+
+		fmt.Printf("Device updated successfully: %s (%s) for user %s\n", 
 			device.Type, device.ID, device.User.Email)
 		return nil
 	},
@@ -1132,6 +1441,7 @@ var authenticateYubikeyCmd = &cobra.Command{
 			ID:        uuid.New(),
 			UserID:    user.ID,
 			DeviceID:  device.ID,
+			ActionID:  nil, // No specific action for authentication
 			Type:      "mfa",
 			Success:   hasPermission,
 			IPAddress: "", // CLI doesn't have IP context
@@ -1392,7 +1702,7 @@ var logActionCmd = &cobra.Command{
 			ID:         uuid.New(),
 			UserID:     user.ID,
 			DeviceID:   device.ID,
-			ActionID:   action.ID,
+			ActionID:   &action.ID,
 			Type:       "action",
 			Success:    true,
 			IPAddress:  "",
@@ -1767,10 +2077,20 @@ func init() {
 	createUserCmd.MarkFlagRequired("username")
 	createUserCmd.MarkFlagRequired("password")
 
+	updateUserCmd.Flags().String("email", "", "User email address")
+	updateUserCmd.Flags().String("username", "", "Username")
+	updateUserCmd.Flags().String("password", "", "Password")
+	updateUserCmd.Flags().String("first-name", "", "First name")
+	updateUserCmd.Flags().String("last-name", "", "Last name")
+	updateUserCmd.Flags().Bool("active", true, "Whether the user is active")
+
 	// Role command flags
 	createRoleCmd.Flags().String("name", "", "Role name")
 	createRoleCmd.Flags().String("description", "", "Role description")
 	createRoleCmd.MarkFlagRequired("name")
+
+	updateRoleCmd.Flags().String("name", "", "Role name")
+	updateRoleCmd.Flags().String("description", "", "Role description")
 
 	// Permission command flags
 	createPermissionCmd.Flags().String("resource-id", "", "Resource ID")
@@ -1778,6 +2098,10 @@ func init() {
 	createPermissionCmd.Flags().String("effect", "allow", "Effect ('allow' or 'deny')")
 	createPermissionCmd.MarkFlagRequired("resource-id")
 	createPermissionCmd.MarkFlagRequired("action")
+
+	updatePermissionCmd.Flags().String("resource", "", "Resource ID or name")
+	updatePermissionCmd.Flags().String("action", "", "Action name (e.g., 'read', 'write')")
+	updatePermissionCmd.Flags().String("effect", "allow", "Effect ('allow' or 'deny')")
 
 	// Resource command flags
 	createResourceCmd.Flags().String("name", "", "Resource name")
@@ -1788,6 +2112,12 @@ func init() {
 	createResourceCmd.MarkFlagRequired("name")
 	createResourceCmd.MarkFlagRequired("type")
 
+	updateResourceCmd.Flags().String("name", "", "Resource name")
+	updateResourceCmd.Flags().String("type", "", "Resource type (server, service, database, application)")
+	updateResourceCmd.Flags().String("location", "", "Resource location")
+	updateResourceCmd.Flags().String("department", "", "Resource department")
+	updateResourceCmd.Flags().Bool("active", true, "Whether the resource is active")
+
 	// Device command flags
 	createDeviceCmd.Flags().String("user-id", "", "User ID")
 	createDeviceCmd.Flags().String("type", "", "Device type (yubikey, totp, sms, email)")
@@ -1797,6 +2127,12 @@ func init() {
 	createDeviceCmd.MarkFlagRequired("user-id")
 	createDeviceCmd.MarkFlagRequired("type")
 	createDeviceCmd.MarkFlagRequired("identifier")
+
+	updateDeviceCmd.Flags().String("user-id", "", "User ID")
+	updateDeviceCmd.Flags().String("type", "", "Device type (yubikey, totp, sms, email)")
+	updateDeviceCmd.Flags().String("identifier", "", "Device identifier (e.g., YubiKey public ID, phone number)")
+	updateDeviceCmd.Flags().String("secret", "", "Device secret")
+	updateDeviceCmd.Flags().Bool("active", true, "Whether the device is active")
 
 	listDevicesCmd.Flags().String("user-id", "", "Filter devices by user ID")
 
@@ -1809,18 +2145,22 @@ func init() {
 	userCmd.AddCommand(createUserCmd)
 	userCmd.AddCommand(listUsersCmd)
 	userCmd.AddCommand(deleteUserCmd)
+	userCmd.AddCommand(updateUserCmd)
 
 	roleCmd.AddCommand(createRoleCmd)
 	roleCmd.AddCommand(listRolesCmd)
 	roleCmd.AddCommand(deleteRoleCmd)
+	roleCmd.AddCommand(updateRoleCmd)
 
 	permissionCmd.AddCommand(createPermissionCmd)
 	permissionCmd.AddCommand(listPermissionsCmd)
 	permissionCmd.AddCommand(deletePermissionCmd)
+	permissionCmd.AddCommand(updatePermissionCmd)
 
 	deviceCmd.AddCommand(createDeviceCmd)
 	deviceCmd.AddCommand(listDevicesCmd)
 	deviceCmd.AddCommand(deleteDeviceCmd)
+	deviceCmd.AddCommand(updateDeviceCmd)
 
 	assignCmd.AddCommand(assignUserToRoleCmd)
 	assignCmd.AddCommand(removeUserFromRoleCmd)
@@ -1830,6 +2170,7 @@ func init() {
 	resourceCmd.AddCommand(createResourceCmd)
 	resourceCmd.AddCommand(listResourcesCmd)
 	resourceCmd.AddCommand(deleteResourceCmd)
+	resourceCmd.AddCommand(updateResourceCmd)
 
 	authenticateCmd.AddCommand(authenticateYubikeyCmd)
 	actionCmd.AddCommand(listActionsCmd)

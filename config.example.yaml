@@ -12,10 +12,19 @@ database:
   password: "your-database-password"
   ssl_mode: "disable"
 
+redis:
+  host: "localhost"
+  port: 6379
+  password: ""
+  db: 0
+  pool_size: 10
+
 auth:
   jwt_secret: "your-jwt-secret-key-here"
   token_expiry: 24h
   refresh_token_expiry: 720h
+  access_token_expiry: 15m  # Session access token expiry (15 minutes)
+  session_expiry: 24h       # Session expiry time
 
 yubikey:
   client_id: "your-yubikey-client-id"

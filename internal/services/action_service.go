@@ -33,7 +33,7 @@ func (s *ActionService) GetActionByName(name string) (*database.Action, error) {
 // GetActionByID retrieves an action by its ID
 func (s *ActionService) GetActionByID(id uuid.UUID) (*database.Action, error) {
 	var action database.Action
-	if err := s.db.First(&action, id).Error; err != nil {
+	if err := s.db.Where("id = ?", id).First(&action).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("action with ID '%s' not found", id)
 		}
@@ -74,7 +74,7 @@ func (s *ActionService) CreateAction(name string, requiredPermissions []string) 
 // UpdateAction updates an existing action
 func (s *ActionService) UpdateAction(id uuid.UUID, name string, requiredPermissions []string) (*database.Action, error) {
 	action := &database.Action{}
-	if err := s.db.First(action, id).Error; err != nil {
+	if err := s.db.Where("id = ?", id).First(action).Error; err != nil {
 		return nil, err
 	}
 
@@ -122,7 +122,7 @@ func (s *ActionService) CheckUserPermissionsForAction(userID uuid.UUID, actionNa
 
 	// Get user with roles and permissions
 	var user database.User
-	if err := s.db.Preload("Roles.Permissions.Resource").First(&user, userID).Error; err != nil {
+	if err := s.db.Preload("Roles.Permissions.Resource").Where("id = ?", userID).First(&user).Error; err != nil {
 		return false, err
 	}
 

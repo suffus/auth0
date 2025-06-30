@@ -38,11 +38,6 @@ type Service interface {
 	// MFA
 	InitiateMFA(ctx context.Context, userID uuid.UUID, deviceType string) error
 	VerifyMFA(ctx context.Context, userID uuid.UUID, deviceID uuid.UUID, otp string) error
-
-	// Session management
-	GetActiveSessions(ctx context.Context, userID uuid.UUID) ([]database.Session, error)
-	RevokeSession(ctx context.Context, sessionID uuid.UUID) error
-	RevokeAllSessions(ctx context.Context, userID uuid.UUID) error
 }
 
 // Implementation will be provided in separate files for each authentication method:

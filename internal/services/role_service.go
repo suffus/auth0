@@ -34,7 +34,7 @@ func (s *RoleService) CreateRole(name, description string) (*database.Role, erro
 // GetRoleByID retrieves a role by ID
 func (s *RoleService) GetRoleByID(roleID uuid.UUID) (*database.Role, error) {
 	var role database.Role
-	if err := s.db.Preload("Permissions.Resource").First(&role, roleID).Error; err != nil {
+	if err := s.db.Preload("Permissions.Resource").Where("id = ?", roleID).First(&role).Error; err != nil {
 		return nil, fmt.Errorf("role not found: %w", err)
 	}
 	return &role, nil
@@ -61,7 +61,7 @@ func (s *RoleService) ListRoles() ([]database.Role, error) {
 // UpdateRole updates a role
 func (s *RoleService) UpdateRole(roleID uuid.UUID, updates map[string]interface{}) (*database.Role, error) {
 	var role database.Role
-	if err := s.db.First(&role, roleID).Error; err != nil {
+	if err := s.db.Where("id = ?", roleID).First(&role).Error; err != nil {
 		return nil, fmt.Errorf("role not found: %w", err)
 	}
 
@@ -70,7 +70,7 @@ func (s *RoleService) UpdateRole(roleID uuid.UUID, updates map[string]interface{
 	}
 
 	// Reload role with permissions
-	if err := s.db.Preload("Permissions.Resource").First(&role, roleID).Error; err != nil {
+	if err := s.db.Preload("Permissions.Resource").Where("id = ?", roleID).First(&role).Error; err != nil {
 		return nil, fmt.Errorf("failed to reload role: %w", err)
 	}
 
@@ -80,7 +80,7 @@ func (s *RoleService) UpdateRole(roleID uuid.UUID, updates map[string]interface{
 // DeleteRole deletes a role
 func (s *RoleService) DeleteRole(roleID uuid.UUID) error {
 	var role database.Role
-	if err := s.db.First(&role, roleID).Error; err != nil {
+	if err := s.db.Where("id = ?", roleID).First(&role).Error; err != nil {
 		return fmt.Errorf("role not found: %w", err)
 	}
 
@@ -94,12 +94,12 @@ func (s *RoleService) DeleteRole(roleID uuid.UUID) error {
 // AssignPermissionToRole assigns a permission to a role
 func (s *RoleService) AssignPermissionToRole(roleID, permissionID uuid.UUID) error {
 	var role database.Role
-	if err := s.db.First(&role, roleID).Error; err != nil {
+	if err := s.db.Where("id = ?", roleID).First(&role).Error; err != nil {
 		return fmt.Errorf("role not found: %w", err)
 	}
 
 	var permission database.Permission
-	if err := s.db.Preload("Resource").First(&permission, permissionID).Error; err != nil {
+	if err := s.db.Preload("Resource").Where("id = ?", permissionID).First(&permission).Error; err != nil {
 		return fmt.Errorf("permission not found: %w", err)
 	}
 
@@ -123,12 +123,12 @@ func (s *RoleService) AssignPermissionToRole(roleID, permissionID uuid.UUID) err
 // RemovePermissionFromRole removes a permission from a role
 func (s *RoleService) RemovePermissionFromRole(roleID, permissionID uuid.UUID) error {
 	var role database.Role
-	if err := s.db.First(&role, roleID).Error; err != nil {
+	if err := s.db.Where("id = ?", roleID).First(&role).Error; err != nil {
 		return fmt.Errorf("role not found: %w", err)
 	}
 
 	var permission database.Permission
-	if err := s.db.Preload("Resource").First(&permission, permissionID).Error; err != nil {
+	if err := s.db.Preload("Resource").Where("id = ?", permissionID).First(&permission).Error; err != nil {
 		return fmt.Errorf("permission not found: %w", err)
 	}
 

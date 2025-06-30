@@ -15,8 +15,46 @@ components:
       name: Authorization
       description: |
         Device-based authentication. Example: `yubikey:<otp>`, `totp:<code>`, etc.
+        Required for all write operations (POST, PUT, DELETE).
+    SessionAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Session-based authentication using JWT access tokens.
+        Include the access token in the Authorization header as "Bearer <token>".
+        Only allowed for read operations (GET methods).
 
   schemas:
+    Session:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        device_id: { type: string, format: uuid }
+        access_count: { type: integer }
+        refresh_count: { type: integer }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        is_valid: { type: boolean }
+    
+    SessionResponse:
+      type: object
+      properties:
+        authenticated: { type: boolean }
+        session_id: { type: string, format: uuid }
+        access_token: { type: string }
+        refresh_token: { type: string }
+        user: { $ref: '#/components/schemas/User' }
+        device: { $ref: '#/components/schemas/Device' }
+    
+    RefreshResponse:
+      type: object
+      properties:
+        session_id: { type: string, format: uuid }
+        access_token: { type: string }
+        refresh_token: { type: string }
+
     User:
       type: object
       properties:
@@ -123,6 +161,71 @@ paths:
                   user: { $ref: '#/components/schemas/User' }
         '401':
           description: Authentication failed
+
+  /auth/session:
+    post:
+      summary: Create a new session using device authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - device_type
+                - auth_code
+              properties:
+                device_type: { type: string }
+                auth_code: { type: string }
+                permission: 
+                  type: string
+                  description: |
+                    Optional permission to check. Can be either:
+                    - Resource:action format (e.g., "yubiapp:read")
+                    - Permission UUID (e.g., "123e4567-e89b-12d3-a456-426614174000")
+                nonce: { type: string }
+      responses:
+        '200':
+          description: Session created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '401':
+          description: Authentication failed
+        '500':
+          description: Failed to create session
+
+  /auth/session/refresh/{session_id}:
+    post:
+      summary: Refresh session tokens
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+          description: Session ID to refresh
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refresh_token
+              properties:
+                refresh_token: { type: string }
+      responses:
+        '200':
+          description: Tokens refreshed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshResponse'
+        '400':
+          description: Invalid request or session ID mismatch
+        '401':
+          description: Invalid refresh token or session not found
 
   /auth/action/{action_name}:
     post:
@@ -394,7 +497,13 @@ paths:
   /users:
     get:
       summary: List users
-      security: [ { DeviceAuth: [] } ]
+      description: |
+        Supports both device-based and session-based authentication.
+        - Device auth: `Authorization: yubikey:<otp>`
+        - Session auth: `Authorization: Bearer <access_token>`
+      security: 
+        - DeviceAuth: []
+        - SessionAuth: []
       responses:
         '200':
           description: List of users
@@ -407,8 +516,15 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/User' }
                   count: { type: integer }
+        '401':
+          description: Authentication failed
+        '403':
+          description: Permission denied
     post:
       summary: Create a user
+      description: |
+        Requires device-based authentication only.
+        Session-based authentication is not allowed for write operations.
       security: [ { DeviceAuth: [] } ]
       requestBody:
         required: true
@@ -430,11 +546,21 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/User' }
+        '401':
+          description: Authentication failed
+        '403':
+          description: Permission denied or session auth not allowed
 
   /users/{id}:
     get:
       summary: Get user by ID
-      security: [ { DeviceAuth: [] } ]
+      description: |
+        Supports both device-based and session-based authentication.
+        - Device auth: `Authorization: yubikey:<otp>`
+        - Session auth: `Authorization: Bearer <access_token>`
+      security: 
+        - DeviceAuth: []
+        - SessionAuth: []
       parameters:
         - name: id
           in: path
@@ -446,8 +572,15 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/User' }
+        '401':
+          description: Authentication failed
+        '404':
+          description: User not found
     put:
       summary: Update user
+      description: |
+        Requires device-based authentication only.
+        Session-based authentication is not allowed for write operations.
       security: [ { DeviceAuth: [] } ]
       parameters:
         - name: id
@@ -473,8 +606,15 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/User' }
+        '401':
+          description: Authentication failed
+        '403':
+          description: Permission denied or session auth not allowed
     delete:
       summary: Delete user
+      description: |
+        Requires device-based authentication only.
+        Session-based authentication is not allowed for write operations.
       security: [ { DeviceAuth: [] } ]
       parameters:
         - name: id
@@ -484,6 +624,10 @@ paths:
       responses:
         '200':
           description: User deleted
+        '401':
+          description: Authentication failed
+        '403':
+          description: Permission denied or session auth not allowed
 
   /user-roles/{user_id}/{role_id}:
     post:

@@ -3,6 +3,7 @@ package database
 import (
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgtype"
 	"gorm.io/gorm"
@@ -23,7 +24,6 @@ type User struct {
 
 	Roles    []Role    `gorm:"many2many:user_roles;"`
 	Devices  []Device  `gorm:"foreignKey:UserID"`
-	Sessions []Session `gorm:"foreignKey:UserID"`
 }
 
 type Role struct {
@@ -84,19 +84,35 @@ type Device struct {
 	Properties  map[string]interface{} `gorm:"type:jsonb"`
 }
 
+// Session represents a user session stored in Redis (not in PostgreSQL)
 type Session struct {
-	ID        uuid.UUID `gorm:"type:uuid;primary_key;"`
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID           string    `json:"id" gorm:"primaryKey"`
+	UserID       uuid.UUID `json:"user_id"`
+	DeviceID     uuid.UUID `json:"device_id"`
+	AccessCount  int       `json:"access_count"`
+	RefreshCount int       `json:"refresh_count"`
+	CreatedAt    time.Time `json:"created_at"`
+	ExpiresAt    time.Time `json:"expires_at"`
+	IsValid      bool      `json:"is_valid"`
+}
 
-	UserID       uuid.UUID `gorm:"type:uuid"`
-	Token        string    `gorm:"uniqueIndex"`
-	RefreshToken string    `gorm:"uniqueIndex"`
-	ExpiresAt    time.Time
-	LastUsedAt   time.Time
-	UserAgent    string
-	IPAddress    string
-	Active       bool
+// SessionToken represents JWT token claims for sessions
+type SessionToken struct {
+	SessionID    string `json:"session_id"`
+	UserID       string `json:"user_id"`
+	DeviceID     string `json:"device_id"`
+	AccessCount  int    `json:"access_count"`
+	RefreshCount int    `json:"refresh_count"`
+	jwt.RegisteredClaims
+}
+
+// RefreshToken represents JWT token claims for refresh tokens
+type RefreshToken struct {
+	SessionID    string `json:"session_id"`
+	UserID       string `json:"user_id"`
+	DeviceID     string `json:"device_id"`
+	RefreshCount int    `json:"refresh_count"`
+	jwt.RegisteredClaims
 }
 
 type AuthenticationLog struct {
@@ -105,7 +121,7 @@ type AuthenticationLog struct {
 
 	UserID     uuid.UUID `gorm:"type:uuid"`
 	DeviceID   uuid.UUID `gorm:"type:uuid"`
-	ActionID   uuid.UUID `gorm:"type:uuid"`
+	ActionID   *uuid.UUID `gorm:"type:uuid"`
 	Type       string    // "login", "logout", "refresh", "mfa", "action"
 	Success    bool
 	IPAddress  string

@@ -55,7 +55,7 @@ func (s *AuthService) AuthenticateDevice(deviceType, authCode, requiredPermissio
 
 	// Get user associated with the device
 	var user database.User
-	if err := s.db.Preload("Roles.Permissions.Resource").First(&user, device.UserID).Error; err != nil {
+	if err := s.db.Preload("Roles.Permissions.Resource").Where("id = ?", device.UserID).First(&user).Error; err != nil {
 		return nil, nil, fmt.Errorf("failed to find user: %w", err)
 	}
 
@@ -262,7 +262,7 @@ func (s *AuthService) LogAuthentication(logData map[string]interface{}) error {
 		authLog.DeviceID = deviceID
 	}
 	if actionID, ok := logData["action_id"].(uuid.UUID); ok {
-		authLog.ActionID = actionID
+		authLog.ActionID = &actionID
 	}
 	if success, ok := logData["success"].(bool); ok {
 		authLog.Success = success
@@ -296,7 +296,7 @@ func (s *AuthService) LogAuthentication(logData map[string]interface{}) error {
 // CheckUserPermissionByResourceAction checks if a user has a specific permission by resource name and action
 func (s *AuthService) CheckUserPermissionByResourceAction(userID uuid.UUID, resourceName, action string) (bool, error) {
 	var user database.User
-	if err := s.db.Preload("Roles.Permissions.Resource").First(&user, userID).Error; err != nil {
+	if err := s.db.Preload("Roles.Permissions.Resource").Where("id = ?", userID).First(&user).Error; err != nil {
 		return false, err
 	}
 

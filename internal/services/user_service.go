@@ -44,7 +44,7 @@ func (s *UserService) CreateUser(email, username, password, firstName, lastName 
 // GetUserByID retrieves a user by ID
 func (s *UserService) GetUserByID(userID uuid.UUID) (*database.User, error) {
 	var user database.User
-	if err := s.db.Preload("Roles").First(&user, userID).Error; err != nil {
+	if err := s.db.Preload("Roles").Where("id = ?", userID).First(&user).Error; err != nil {
 		return nil, fmt.Errorf("user not found: %w", err)
 	}
 	return &user, nil
@@ -71,7 +71,7 @@ func (s *UserService) ListUsers() ([]database.User, error) {
 // UpdateUser updates a user
 func (s *UserService) UpdateUser(userID uuid.UUID, updates map[string]interface{}) (*database.User, error) {
 	var user database.User
-	if err := s.db.First(&user, userID).Error; err != nil {
+	if err := s.db.Where("id = ?", userID).First(&user).Error; err != nil {
 		return nil, fmt.Errorf("user not found: %w", err)
 	}
 
@@ -89,7 +89,7 @@ func (s *UserService) UpdateUser(userID uuid.UUID, updates map[string]interface{
 	}
 
 	// Reload user with roles
-	if err := s.db.Preload("Roles").First(&user, userID).Error; err != nil {
+	if err := s.db.Preload("Roles").Where("id = ?", userID).First(&user).Error; err != nil {
 		return nil, fmt.Errorf("failed to reload user: %w", err)
 	}
 
@@ -99,7 +99,7 @@ func (s *UserService) UpdateUser(userID uuid.UUID, updates map[string]interface{
 // DeleteUser deletes a user
 func (s *UserService) DeleteUser(userID uuid.UUID) error {
 	var user database.User
-	if err := s.db.First(&user, userID).Error; err != nil {
+	if err := s.db.Where("id = ?", userID).First(&user).Error; err != nil {
 		return fmt.Errorf("user not found: %w", err)
 	}
 
@@ -113,12 +113,12 @@ func (s *UserService) DeleteUser(userID uuid.UUID) error {
 // AssignUserToRole assigns a user to a role
 func (s *UserService) AssignUserToRole(userID, roleID uuid.UUID) error {
 	var user database.User
-	if err := s.db.First(&user, userID).Error; err != nil {
+	if err := s.db.Where("id = ?", userID).First(&user).Error; err != nil {
 		return fmt.Errorf("user not found: %w", err)
 	}
 
 	var role database.Role
-	if err := s.db.First(&role, roleID).Error; err != nil {
+	if err := s.db.Where("id = ?", roleID).First(&role).Error; err != nil {
 		return fmt.Errorf("role not found: %w", err)
 	}
 
@@ -141,12 +141,12 @@ func (s *UserService) AssignUserToRole(userID, roleID uuid.UUID) error {
 // RemoveUserFromRole removes a user from a role
 func (s *UserService) RemoveUserFromRole(userID, roleID uuid.UUID) error {
 	var user database.User
-	if err := s.db.First(&user, userID).Error; err != nil {
+	if err := s.db.Where("id = ?", userID).First(&user).Error; err != nil {
 		return fmt.Errorf("user not found: %w", err)
 	}
 
 	var role database.Role
-	if err := s.db.First(&role, roleID).Error; err != nil {
+	if err := s.db.Where("id = ?", roleID).First(&role).Error; err != nil {
 		return fmt.Errorf("role not found: %w", err)
 	}
 

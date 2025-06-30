@@ -10,6 +10,7 @@ import (
 type Config struct {
 	Server   ServerConfig   `mapstructure:"server"`
 	Database DatabaseConfig `mapstructure:"database"`
+	Redis    RedisConfig    `mapstructure:"redis"`
 	Auth     AuthConfig     `mapstructure:"auth"`
 	Yubikey  YubikeyConfig  `mapstructure:"yubikey"`
 	SMS      SMSConfig      `mapstructure:"sms"`
@@ -33,10 +34,20 @@ type DatabaseConfig struct {
 	SSLMode  string `mapstructure:"ssl_mode"`
 }
 
+type RedisConfig struct {
+	Host     string `mapstructure:"host"`
+	Port     int    `mapstructure:"port"`
+	Password string `mapstructure:"password"`
+	DB       int    `mapstructure:"db"`
+	PoolSize int    `mapstructure:"pool_size"`
+}
+
 type AuthConfig struct {
 	JWTSecret           string        `mapstructure:"jwt_secret"`
 	TokenExpiry         time.Duration `mapstructure:"token_expiry"`
 	RefreshTokenExpiry  time.Duration `mapstructure:"refresh_token_expiry"`
+	AccessTokenExpiry   time.Duration `mapstructure:"access_token_expiry"`
+	SessionExpiry       time.Duration `mapstructure:"session_expiry"`
 }
 
 type YubikeyConfig struct {
@@ -98,8 +109,16 @@ func setDefaults() {
 	viper.SetDefault("database.port", 5432)
 	viper.SetDefault("database.ssl_mode", "disable")
 
+	viper.SetDefault("redis.host", "localhost")
+	viper.SetDefault("redis.port", 6379)
+	viper.SetDefault("redis.password", "")
+	viper.SetDefault("redis.db", 0)
+	viper.SetDefault("redis.pool_size", 10)
+
 	viper.SetDefault("auth.token_expiry", "24h")
 	viper.SetDefault("auth.refresh_token_expiry", "720h")
+	viper.SetDefault("auth.access_token_expiry", "15m")
+	viper.SetDefault("auth.session_expiry", "24h")
 
 	viper.SetDefault("yubikey.api_url", "https://api.yubico.com/wsapi/2.0/verify")
 

@@ -25,6 +25,7 @@ type Server struct {
 	deviceService         *services.DeviceService
 	actionService         *services.ActionService
 	deviceRegService      *services.DeviceRegistrationService
+	sessionService        *services.SessionService
 	httpServer            *http.Server
 }
 
@@ -45,6 +46,7 @@ func New(cfg *config.Config) *Server {
 	deviceService := services.NewDeviceService(db)
 	actionService := services.NewActionService(db)
 	deviceRegService := services.NewDeviceRegistrationService(db)
+	sessionService := services.NewSessionService(cfg)
 
 	// Set Gin mode
 	if !cfg.Server.Debug {
@@ -52,7 +54,7 @@ func New(cfg *config.Config) *Server {
 	}
 
 	// Setup router
-	router := setupRouter(authService, userService, roleService, resourceService, permissionService, deviceService, actionService, deviceRegService)
+	router := setupRouter(authService, userService, roleService, resourceService, permissionService, deviceService, actionService, deviceRegService, sessionService)
 
 	// Create HTTP server
 	httpServer := &http.Server{
@@ -74,6 +76,7 @@ func New(cfg *config.Config) *Server {
 		deviceService:         deviceService,
 		actionService:         actionService,
 		deviceRegService:      deviceRegService,
+		sessionService:        sessionService,
 		httpServer:            httpServer,
 	}
 }
@@ -86,6 +89,12 @@ func (s *Server) Start() error {
 
 // Shutdown gracefully shuts down the server
 func (s *Server) Shutdown(ctx context.Context) error {
+	// Close session service (Redis connection)
+	if s.sessionService != nil {
+		if err := s.sessionService.Close(); err != nil {
+			log.Printf("Error closing session service: %v", err)
+		}
+	}
 	return s.httpServer.Shutdown(ctx)
 }
 

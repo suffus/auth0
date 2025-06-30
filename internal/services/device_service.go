@@ -104,7 +104,7 @@ func (s *DeviceService) ListDevices(userID *uuid.UUID) ([]database.Device, error
 // UpdateDevice updates a device
 func (s *DeviceService) UpdateDevice(deviceID uuid.UUID, updates map[string]interface{}) (*database.Device, error) {
 	var device database.Device
-	if err := s.db.First(&device, deviceID).Error; err != nil {
+	if err := s.db.Where("id = ?", deviceID).First(&device).Error; err != nil {
 		return nil, fmt.Errorf("device not found: %w", err)
 	}
 
@@ -128,7 +128,7 @@ func (s *DeviceService) UpdateDevice(deviceID uuid.UUID, updates map[string]inte
 	}
 
 	// Reload device with user
-	if err := s.db.Preload("User").First(&device, deviceID).Error; err != nil {
+	if err := s.db.Preload("User").Where("id = ?", deviceID).First(&device).Error; err != nil {
 		return nil, fmt.Errorf("failed to reload device: %w", err)
 	}
 

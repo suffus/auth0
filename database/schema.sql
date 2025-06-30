@@ -37,7 +37,7 @@ CREATE TABLE resources (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    name VARCHAR(255) UNIQUE NOT NULL,
+    name VARCHAR(255) UNIQUE NOT NULL CHECK (name NOT LIKE '%:%'),
     type VARCHAR(50) NOT NULL CHECK (type IN ('server', 'service', 'database', 'application')),
     location VARCHAR(255),
     department VARCHAR(255),
@@ -77,21 +77,6 @@ CREATE TABLE devices (
     verified_at TIMESTAMP WITH TIME ZONE,
     active BOOLEAN DEFAULT TRUE,
     properties JSONB
-);
-
--- Sessions table
-CREATE TABLE sessions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token VARCHAR(255) UNIQUE NOT NULL,
-    refresh_token VARCHAR(255) UNIQUE NOT NULL,
-    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    last_used_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    user_agent TEXT,
-    ip_address VARCHAR(45),
-    active BOOLEAN DEFAULT TRUE
 );
 
 -- Authentication logs table
@@ -154,12 +139,6 @@ CREATE INDEX idx_devices_type ON devices(type);
 CREATE INDEX idx_devices_identifier ON devices(identifier);
 CREATE INDEX idx_devices_active ON devices(active);
 
-CREATE INDEX idx_sessions_user_id ON sessions(user_id);
-CREATE INDEX idx_sessions_token ON sessions(token);
-CREATE INDEX idx_sessions_refresh_token ON sessions(refresh_token);
-CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
-CREATE INDEX idx_sessions_active ON sessions(active);
-
 CREATE INDEX idx_authentication_logs_user_id ON authentication_logs(user_id);
 CREATE INDEX idx_authentication_logs_device_id ON authentication_logs(device_id);
 CREATE INDEX idx_authentication_logs_action_id ON authentication_logs(action_id);
@@ -190,7 +169,6 @@ CREATE TRIGGER update_roles_updated_at BEFORE UPDATE ON roles FOR EACH ROW EXECU
 CREATE TRIGGER update_permissions_updated_at BEFORE UPDATE ON permissions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_actions_updated_at BEFORE UPDATE ON actions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_devices_updated_at BEFORE UPDATE ON devices FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_sessions_updated_at BEFORE UPDATE ON sessions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Insert some default data
 -- Default admin role
@@ -202,7 +180,6 @@ INSERT INTO roles (id, name, description) VALUES
 INSERT INTO resources (id, name, type, location, department) VALUES 
     (uuid_generate_v4(), 'user', 'application', 'internal', 'IT'),
     (uuid_generate_v4(), 'device', 'application', 'internal', 'IT'),
-    (uuid_generate_v4(), 'session', 'application', 'internal', 'IT'),
     (uuid_generate_v4(), 'admin', 'application', 'internal', 'IT'),
     (uuid_generate_v4(), 'yubiapp', 'application', 'internal', 'IT');
 
@@ -211,7 +188,7 @@ INSERT INTO permissions (id, resource_id, action, effect)
 SELECT uuid_generate_v4(), r.id, p.action, p.effect
 FROM resources r
 CROSS JOIN (VALUES ('read', 'allow'), ('write', 'allow')) AS p(action, effect)
-WHERE r.name IN ('user', 'device', 'session', 'admin');
+WHERE r.name IN ('user', 'device', 'admin');
 
 -- Add yubiapp-specific permissions
 INSERT INTO permissions (id, resource_id, action, effect)
@@ -243,5 +220,5 @@ SELECT r.id, p.id
 FROM roles r, permissions p, resources res
 WHERE r.name = 'user' 
 AND p.resource_id = res.id
-AND res.name IN ('user', 'device', 'session') 
+AND res.name IN ('user', 'device') 
 AND p.action = 'read'; 

@@ -39,7 +39,7 @@ func (s *DeviceRegistrationService) RegisterDevice(
 
 	// 1. Find target user
 	var targetUser database.User
-	if err := tx.First(&targetUser, targetUserID).Error; err != nil {
+	if err := tx.Where("id = ?", targetUserID).First(&targetUser).Error; err != nil {
 		tx.Rollback()
 		return nil, fmt.Errorf("target user not found: %w", err)
 	}
@@ -131,7 +131,7 @@ func (s *DeviceRegistrationService) DeregisterDevice(
 
 	// 1. Find device
 	var device database.Device
-	if err := tx.Preload("User").First(&device, deviceID).Error; err != nil {
+	if err := tx.Preload("User").Where("id = ?", deviceID).First(&device).Error; err != nil {
 		tx.Rollback()
 		return nil, fmt.Errorf("device not found: %w", err)
 	}
@@ -195,7 +195,7 @@ func (s *DeviceRegistrationService) TransferDevice(
 
 	// 1. Find target user
 	var targetUser database.User
-	if err := tx.First(&targetUser, targetUserID).Error; err != nil {
+	if err := tx.Where("id = ?", targetUserID).First(&targetUser).Error; err != nil {
 		tx.Rollback()
 		return nil, fmt.Errorf("target user not found: %w", err)
 	}
@@ -207,7 +207,7 @@ func (s *DeviceRegistrationService) TransferDevice(
 
 	// 2. Find device
 	var device database.Device
-	if err := tx.Preload("User").First(&device, deviceID).Error; err != nil {
+	if err := tx.Preload("User").Where("id = ?", deviceID).First(&device).Error; err != nil {
 		tx.Rollback()
 		return nil, fmt.Errorf("device not found: %w", err)
 	}

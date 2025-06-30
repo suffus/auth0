@@ -1,0 +1,4 @@
+General Instructions on Code Generation.
+
+If i ask you to remove something (a class, a table, a file etc) you should remove it and check if there are any related objects, files or functions that need to be changed or removed also.
+

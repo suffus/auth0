@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/YubiApp/internal/database"
 	"github.com/google/uuid"
@@ -18,6 +19,11 @@ func NewResourceService(db *gorm.DB) *ResourceService {
 
 // CreateResource creates a new resource
 func (s *ResourceService) CreateResource(name, resourceType, location, department string, active bool) (*database.Resource, error) {
+	// Validate resource name - no colons allowed to avoid ambiguity in permission format
+	if strings.Contains(name, ":") {
+		return nil, fmt.Errorf("resource name cannot contain colons (':') to avoid ambiguity in permission format")
+	}
+
 	// Validate resource type
 	validTypes := []string{"server", "service", "database", "application"}
 	validType := false
@@ -50,7 +56,7 @@ func (s *ResourceService) CreateResource(name, resourceType, location, departmen
 // GetResourceByID retrieves a resource by ID
 func (s *ResourceService) GetResourceByID(resourceID uuid.UUID) (*database.Resource, error) {
 	var resource database.Resource
-	if err := s.db.First(&resource, resourceID).Error; err != nil {
+	if err := s.db.Where("id = ?", resourceID).First(&resource).Error; err != nil {
 		return nil, fmt.Errorf("resource not found: %w", err)
 	}
 	return &resource, nil
@@ -77,8 +83,15 @@ func (s *ResourceService) ListResources() ([]database.Resource, error) {
 // UpdateResource updates a resource
 func (s *ResourceService) UpdateResource(resourceID uuid.UUID, updates map[string]interface{}) (*database.Resource, error) {
 	var resource database.Resource
-	if err := s.db.First(&resource, resourceID).Error; err != nil {
+	if err := s.db.Where("id = ?", resourceID).First(&resource).Error; err != nil {
 		return nil, fmt.Errorf("resource not found: %w", err)
+	}
+
+	// Validate resource name if it's being updated - no colons allowed
+	if name, ok := updates["name"].(string); ok {
+		if strings.Contains(name, ":") {
+			return nil, fmt.Errorf("resource name cannot contain colons (':') to avoid ambiguity in permission format")
+		}
 	}
 
 	// Validate resource type if it's being updated
@@ -101,7 +114,7 @@ func (s *ResourceService) UpdateResource(resourceID uuid.UUID, updates map[strin
 	}
 
 	// Reload resource
-	if err := s.db.First(&resource, resourceID).Error; err != nil {
+	if err := s.db.Where("id = ?", resourceID).First(&resource).Error; err != nil {
 		return nil, fmt.Errorf("failed to reload resource: %w", err)
 	}
 
@@ -111,7 +124,7 @@ func (s *ResourceService) UpdateResource(resourceID uuid.UUID, updates map[strin
 // DeleteResource deletes a resource
 func (s *ResourceService) DeleteResource(resourceID uuid.UUID) error {
 	var resource database.Resource
-	if err := s.db.First(&resource, resourceID).Error; err != nil {
+	if err := s.db.Where("id = ?", resourceID).First(&resource).Error; err != nil {
 		return fmt.Errorf("resource not found: %w", err)
 	}
 

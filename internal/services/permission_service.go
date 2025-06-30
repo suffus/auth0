@@ -77,7 +77,7 @@ func (s *PermissionService) DeletePermission(permissionID uuid.UUID) error {
 // CheckUserPermission checks if a user has a specific permission
 func (s *PermissionService) CheckUserPermission(userID uuid.UUID, resourceName, action string) (bool, error) {
 	var user database.User
-	if err := s.db.Preload("Roles.Permissions.Resource").First(&user, userID).Error; err != nil {
+	if err := s.db.Preload("Roles.Permissions.Resource").Where("id = ?", userID).First(&user).Error; err != nil {
 		return false, fmt.Errorf("user not found: %w", err)
 	}
 

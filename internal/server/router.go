@@ -16,6 +16,7 @@ func setupRouter(
 	deviceService *services.DeviceService,
 	actionService *services.ActionService,
 	deviceRegService *services.DeviceRegistrationService,
+	sessionService *services.SessionService,
 ) *gin.Engine {
 	router := gin.Default()
 
@@ -38,99 +39,95 @@ func setupRouter(
 	// API v1 routes
 	api := router.Group("/api/v1")
 	{
-		// Authentication endpoint
+		// Authentication endpoints
 		api.POST("/auth/device", handleDeviceAuth(authService))
+		api.POST("/auth/session", handleCreateSession(authService, sessionService))
+		api.POST("/auth/session/refresh/:session_id", handleRefreshSession(sessionService))
 
 		// Action endpoint - POST /auth/action/${action_name}
 		api.POST("/auth/action/:action_name", handlePerformAction(authService, actionService))
 
-		// User management (requires yubiapp:read permission)
+		// User management - GET methods accept both device and session auth, write methods require device auth
 		users := api.Group("/users")
-		users.Use(authMiddleware(authService, "yubiapp:read"))
 		{
-			users.GET("", handleListUsers(userService))
-			users.POST("", authMiddleware(authService, "yubiapp:write"), handleCreateUser(userService))
-			users.GET("/:id", handleGetUser(userService))
-			users.PUT("/:id", authMiddleware(authService, "yubiapp:write"), handleUpdateUser(userService))
-			users.DELETE("/:id", authMiddleware(authService, "yubiapp:write"), handleDeleteUser(userService))
+			users.GET("", authMiddlewareRead(authService, sessionService, "yubiapp:read"), handleListUsers(userService))
+			users.POST("", authMiddlewareWrite(authService, "yubiapp:write"), handleCreateUser(userService))
+			users.GET("/:id", authMiddlewareRead(authService, sessionService, "yubiapp:read"), handleGetUser(userService))
+			users.PUT("/:id", authMiddlewareWrite(authService, "yubiapp:write"), handleUpdateUser(userService))
+			users.DELETE("/:id", authMiddlewareWrite(authService, "yubiapp:write"), handleDeleteUser(userService))
 		}
 
-		// User-role assignments (separate group to avoid conflicts)
+		// User-role assignments (separate group to avoid conflicts) - write operations only
 		userRoles := api.Group("/user-roles")
-		userRoles.Use(authMiddleware(authService, "yubiapp:write"))
+		userRoles.Use(authMiddlewareWrite(authService, "yubiapp:write"))
 		{
 			userRoles.POST("/:user_id/:role_id", handleAssignUserToRole(userService))
 			userRoles.DELETE("/:user_id/:role_id", handleRemoveUserFromRole(userService))
 		}
 
-		// Role management (requires yubiapp:read permission)
+		// Role management - GET methods accept both device and session auth, write methods require device auth
 		roles := api.Group("/roles")
-		roles.Use(authMiddleware(authService, "yubiapp:read"))
 		{
-			roles.GET("", handleListRoles(roleService))
-			roles.POST("", authMiddleware(authService, "yubiapp:write"), handleCreateRole(roleService))
-			roles.GET("/:id", handleGetRole(roleService))
-			roles.PUT("/:id", authMiddleware(authService, "yubiapp:write"), handleUpdateRole(roleService))
-			roles.DELETE("/:id", authMiddleware(authService, "yubiapp:write"), handleDeleteRole(roleService))
+			roles.GET("", authMiddlewareRead(authService, sessionService, "yubiapp:read"), handleListRoles(roleService))
+			roles.POST("", authMiddlewareWrite(authService, "yubiapp:write"), handleCreateRole(roleService))
+			roles.GET("/:id", authMiddlewareRead(authService, sessionService, "yubiapp:read"), handleGetRole(roleService))
+			roles.PUT("/:id", authMiddlewareWrite(authService, "yubiapp:write"), handleUpdateRole(roleService))
+			roles.DELETE("/:id", authMiddlewareWrite(authService, "yubiapp:write"), handleDeleteRole(roleService))
 		}
 
-		// Role-permission assignments (separate group to avoid conflicts)
+		// Role-permission assignments (separate group to avoid conflicts) - write operations only
 		rolePermissions := api.Group("/role-permissions")
-		rolePermissions.Use(authMiddleware(authService, "yubiapp:write"))
+		rolePermissions.Use(authMiddlewareWrite(authService, "yubiapp:write"))
 		{
 			rolePermissions.POST("/:role_id/:permission_id", handleAssignPermissionToRole(roleService))
 			rolePermissions.DELETE("/:role_id/:permission_id", handleRemovePermissionFromRole(roleService))
 		}
 
-		// Resource management (requires yubiapp:read permission)
+		// Resource management - GET methods accept both device and session auth, write methods require device auth
 		resources := api.Group("/resources")
-		resources.Use(authMiddleware(authService, "yubiapp:read"))
 		{
-			resources.GET("", handleListResources(resourceService))
-			resources.POST("", authMiddleware(authService, "yubiapp:write"), handleCreateResource(resourceService))
-			resources.GET("/:id", handleGetResource(resourceService))
-			resources.PUT("/:id", authMiddleware(authService, "yubiapp:write"), handleUpdateResource(resourceService))
-			resources.DELETE("/:id", authMiddleware(authService, "yubiapp:write"), handleDeleteResource(resourceService))
+			resources.GET("", authMiddlewareRead(authService, sessionService, "yubiapp:read"), handleListResources(resourceService))
+			resources.POST("", authMiddlewareWrite(authService, "yubiapp:write"), handleCreateResource(resourceService))
+			resources.GET("/:id", authMiddlewareRead(authService, sessionService, "yubiapp:read"), handleGetResource(resourceService))
+			resources.PUT("/:id", authMiddlewareWrite(authService, "yubiapp:write"), handleUpdateResource(resourceService))
+			resources.DELETE("/:id", authMiddlewareWrite(authService, "yubiapp:write"), handleDeleteResource(resourceService))
 		}
 
-		// Permission management (requires yubiapp:read permission)
+		// Permission management - GET methods accept both device and session auth, write methods require device auth
 		permissions := api.Group("/permissions")
-		permissions.Use(authMiddleware(authService, "yubiapp:read"))
 		{
-			permissions.GET("", handleListPermissions(permissionService))
-			permissions.POST("", authMiddleware(authService, "yubiapp:write"), handleCreatePermission(permissionService))
-			permissions.GET("/:id", handleGetPermission(permissionService))
-			permissions.DELETE("/:id", authMiddleware(authService, "yubiapp:write"), handleDeletePermission(permissionService))
+			permissions.GET("", authMiddlewareRead(authService, sessionService, "yubiapp:read"), handleListPermissions(permissionService))
+			permissions.POST("", authMiddlewareWrite(authService, "yubiapp:write"), handleCreatePermission(permissionService))
+			permissions.GET("/:id", authMiddlewareRead(authService, sessionService, "yubiapp:read"), handleGetPermission(permissionService))
+			permissions.DELETE("/:id", authMiddlewareWrite(authService, "yubiapp:write"), handleDeletePermission(permissionService))
 		}
 
-		// Device management (requires yubiapp:read permission)
+		// Device management - GET methods accept both device and session auth, write methods require device auth
 		devices := api.Group("/devices")
-		devices.Use(authMiddleware(authService, "yubiapp:read"))
 		{
-			devices.GET("", handleListDevices(deviceService))
-			devices.POST("", authMiddleware(authService, "yubiapp:write"), handleCreateDevice(deviceService))
+			devices.GET("", authMiddlewareRead(authService, sessionService, "yubiapp:read"), handleListDevices(deviceService))
+			devices.POST("", authMiddlewareWrite(authService, "yubiapp:write"), handleCreateDevice(deviceService))
 
-			// Device registration endpoints (action first, then ID)
+			// Device registration endpoints (action first, then ID) - write operations only
 			devices.POST("/register", handleRegisterDevice(authService, deviceRegService))
 			devices.POST("/deregister/:device_id", handleDeregisterDevice(authService, deviceRegService))
 			devices.POST("/transfer/:device_id", handleTransferDevice(authService, deviceRegService))
-			devices.GET("/history/:device_id", handleGetDeviceHistory(authService, deviceRegService))
+			devices.GET("/history/:device_id", authMiddlewareRead(authService, sessionService, "yubiapp:read"), handleGetDeviceHistory(authService, deviceRegService))
 
 			// Generic :id routes
-			devices.GET("/:id", handleGetDevice(deviceService))
-			devices.PUT("/:id", authMiddleware(authService, "yubiapp:write"), handleUpdateDevice(deviceService))
-			devices.DELETE("/:id", authMiddleware(authService, "yubiapp:write"), handleDeleteDevice(deviceService))
+			devices.GET("/:id", authMiddlewareRead(authService, sessionService, "yubiapp:read"), handleGetDevice(deviceService))
+			devices.PUT("/:id", authMiddlewareWrite(authService, "yubiapp:write"), handleUpdateDevice(deviceService))
+			devices.DELETE("/:id", authMiddlewareWrite(authService, "yubiapp:write"), handleDeleteDevice(deviceService))
 		}
 
-		// Action management (requires yubiapp:read permission)
+		// Action management - GET methods accept both device and session auth, write methods require device auth
 		actions := api.Group("/actions")
-		actions.Use(authMiddleware(authService, "yubiapp:read"))
 		{
-			actions.GET("", handleListActions(actionService))
-			actions.POST("", authMiddleware(authService, "yubiapp:write"), handleCreateAction(actionService))
-			actions.GET("/:id", handleGetAction(actionService))
-			actions.PUT("/:id", authMiddleware(authService, "yubiapp:write"), handleUpdateAction(actionService))
-			actions.DELETE("/:id", authMiddleware(authService, "yubiapp:write"), handleDeleteAction(actionService))
+			actions.GET("", authMiddlewareRead(authService, sessionService, "yubiapp:read"), handleListActions(actionService))
+			actions.POST("", authMiddlewareWrite(authService, "yubiapp:write"), handleCreateAction(actionService))
+			actions.GET("/:id", authMiddlewareRead(authService, sessionService, "yubiapp:read"), handleGetAction(actionService))
+			actions.PUT("/:id", authMiddlewareWrite(authService, "yubiapp:write"), handleUpdateAction(actionService))
+			actions.DELETE("/:id", authMiddlewareWrite(authService, "yubiapp:write"), handleDeleteAction(actionService))
 		}
 	}
 

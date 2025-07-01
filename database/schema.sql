@@ -60,7 +60,10 @@ CREATE TABLE actions (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     name VARCHAR(255) UNIQUE NOT NULL,
-    required_permissions JSONB DEFAULT '[]'::jsonb
+    activity_type VARCHAR(20) DEFAULT 'other' CHECK (activity_type IN ('user', 'system', 'automated', 'other')),
+    required_permissions JSONB DEFAULT '[]'::jsonb,
+    details JSONB DEFAULT '{}'::jsonb,
+    active BOOLEAN DEFAULT true
 );
 
 -- Devices table
@@ -122,6 +125,32 @@ CREATE TABLE locations (
     active BOOLEAN DEFAULT TRUE
 );
 
+-- User statuses table
+CREATE TABLE user_statuses (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP WITH TIME ZONE,
+    name VARCHAR(255) UNIQUE NOT NULL,
+    description TEXT,
+    type VARCHAR(30) DEFAULT 'working' CHECK (type IN ('working', 'break', 'leave', 'travel', 'other')),
+    active BOOLEAN DEFAULT TRUE
+);
+
+-- User activity history table
+CREATE TABLE user_activity_history (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    action_id UUID NOT NULL REFERENCES actions(id) ON DELETE CASCADE,
+    from_datetime TIMESTAMP WITH TIME ZONE NOT NULL,
+    to_datetime TIMESTAMP WITH TIME ZONE,
+    location_id UUID REFERENCES locations(id) ON DELETE SET NULL,
+    status_id UUID REFERENCES user_statuses(id) ON DELETE SET NULL,
+    details JSONB DEFAULT '{}'::jsonb
+);
+
 -- Junction tables for many-to-many relationships
 
 -- User-Role relationship
@@ -164,6 +193,19 @@ CREATE INDEX idx_locations_name ON locations(name);
 CREATE INDEX idx_locations_type ON locations(type);
 CREATE INDEX idx_locations_active ON locations(active);
 
+CREATE INDEX idx_user_statuses_deleted_at ON user_statuses(deleted_at);
+CREATE INDEX idx_user_statuses_name ON user_statuses(name);
+CREATE INDEX idx_user_statuses_type ON user_statuses(type);
+CREATE INDEX idx_user_statuses_active ON user_statuses(active);
+
+CREATE INDEX idx_user_activity_history_user_id ON user_activity_history(user_id);
+CREATE INDEX idx_user_activity_history_action_id ON user_activity_history(action_id);
+CREATE INDEX idx_user_activity_history_from_datetime ON user_activity_history(from_datetime);
+CREATE INDEX idx_user_activity_history_to_datetime ON user_activity_history(to_datetime);
+CREATE INDEX idx_user_activity_history_location_id ON user_activity_history(location_id);
+CREATE INDEX idx_user_activity_history_status_id ON user_activity_history(status_id);
+CREATE INDEX idx_user_activity_history_user_from_datetime ON user_activity_history(user_id, from_datetime);
+
 CREATE INDEX idx_actions_name ON actions(name);
 
 CREATE INDEX idx_user_roles_user_id ON user_roles(user_id);
@@ -188,6 +230,8 @@ CREATE TRIGGER update_permissions_updated_at BEFORE UPDATE ON permissions FOR EA
 CREATE TRIGGER update_actions_updated_at BEFORE UPDATE ON actions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_devices_updated_at BEFORE UPDATE ON devices FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_locations_updated_at BEFORE UPDATE ON locations FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_user_statuses_updated_at BEFORE UPDATE ON user_statuses FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_user_activity_history_updated_at BEFORE UPDATE ON user_activity_history FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Insert some default data
 -- Default admin role
@@ -217,14 +261,34 @@ CROSS JOIN (VALUES ('register-other', 'allow'), ('deregister-other', 'allow')) A
 WHERE r.name = 'yubiapp';
 
 -- Default actions
-INSERT INTO actions (id, name, required_permissions) VALUES 
-    (uuid_generate_v4(), 'ssh-login', '["ssh:login"]'),
-    (uuid_generate_v4(), 'app-install', '["app:install"]'),
-    (uuid_generate_v4(), 'app-uninstall', '["app:uninstall"]'),
-    (uuid_generate_v4(), 'permission-grant', '["permission:grant"]'),
-    (uuid_generate_v4(), 'permission-revoke', '["permission:revoke"]'),
-    (uuid_generate_v4(), 'user-signin', '[]'),
-    (uuid_generate_v4(), 'user-signout', '[]');
+INSERT INTO actions (id, name, activity_type, required_permissions, details) VALUES 
+    (uuid_generate_v4(), 'ssh-login', 'user', '["ssh:login"]', '{}'),
+    (uuid_generate_v4(), 'app-install', 'system', '["app:install"]', '{}'),
+    (uuid_generate_v4(), 'app-uninstall', 'system', '["app:uninstall"]', '{}'),
+    (uuid_generate_v4(), 'permission-grant', 'system', '["permission:grant"]', '{}'),
+    (uuid_generate_v4(), 'permission-revoke', 'system', '["permission:revoke"]', '{}'),
+    (uuid_generate_v4(), 'user-signin', 'user', '[]', '{}'),
+    (uuid_generate_v4(), 'user-signout', 'user', '[]', '{}'),
+    (uuid_generate_v4(), 'status-change', 'system', '[]', '{}'),
+    (uuid_generate_v4(), 'location-change', 'system', '[]', '{}'),
+    (uuid_generate_v4(), 'break-start', 'system', '[]', '{}'),
+    (uuid_generate_v4(), 'break-end', 'system', '[]', '{}'),
+    (uuid_generate_v4(), 'work-start', 'system', '[]', '{}'),
+    (uuid_generate_v4(), 'work-end', 'system', '[]', '{}'),
+    (uuid_generate_v4(), 'meeting-start', 'system', '[]', '{}'),
+    (uuid_generate_v4(), 'meeting-end', 'system', '[]', '{}');
+
+-- Default user statuses
+INSERT INTO user_statuses (id, name, description, type, active) VALUES 
+    (uuid_generate_v4(), 'Signed In', 'User is signed in and available', 'working', true),
+    (uuid_generate_v4(), 'On Break', 'User is taking a break', 'break', true),
+    (uuid_generate_v4(), 'In Meeting', 'User is in a meeting', 'working', true),
+    (uuid_generate_v4(), 'Out of Office', 'User is out of office', 'leave', true),
+    (uuid_generate_v4(), 'Traveling', 'User is traveling for work', 'travel', true),
+    (uuid_generate_v4(), 'Lunch Break', 'User is on lunch break', 'break', true),
+    (uuid_generate_v4(), 'Training', 'User is in training', 'working', true),
+    (uuid_generate_v4(), 'Sick Leave', 'User is on sick leave', 'leave', true),
+    (uuid_generate_v4(), 'Vacation', 'User is on vacation', 'leave', true);
 
 -- Default locations
 INSERT INTO locations (id, name, description, address, type, active) VALUES 

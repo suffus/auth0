@@ -33,6 +33,7 @@ type Role struct {
 
 	Name        string `gorm:"uniqueIndex"`
 	Description string
+	Active      bool `gorm:"default:true"`
 	Permissions []Permission `gorm:"many2many:role_permissions;"`
 }
 
@@ -64,7 +65,10 @@ type Action struct {
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 	Name                string        `gorm:"uniqueIndex"`
+	ActivityType        string        `gorm:"type:varchar(20);default:'other';check:activity_type IN ('user', 'system', 'automated', 'other')"`
 	RequiredPermissions pgtype.JSONB  `gorm:"type:jsonb"`
+	Details             pgtype.JSONB  `gorm:"type:jsonb;default:'{}'::jsonb"`
+	Active              bool          `gorm:"default:true"`
 }
 
 type Device struct {
@@ -75,7 +79,9 @@ type Device struct {
 
 	UserID      uuid.UUID `gorm:"type:uuid"`
 	User        User      `gorm:"foreignKey:UserID"`
+	Name        string    // Device name
 	Type        string    // "yubikey", "totp", "sms", "email"
+	SerialNumber string   // Device serial number
 	Identifier  string    // Device identifier (e.g., Yubikey public ID, phone number)
 	Secret      string    // For TOTP/device-specific secrets
 	LastUsedAt  time.Time
@@ -119,13 +125,17 @@ type AuthenticationLog struct {
 	ID        uuid.UUID `gorm:"type:uuid;primary_key;"`
 	CreatedAt time.Time
 
-	UserID     uuid.UUID `gorm:"type:uuid"`
-	DeviceID   uuid.UUID `gorm:"type:uuid"`
+	UserID     *uuid.UUID `gorm:"type:uuid"`
+	User       *User      `gorm:"foreignKey:UserID"`
+	DeviceID   uuid.UUID  `gorm:"type:uuid"`
+	Device     Device     `gorm:"foreignKey:DeviceID"`
 	ActionID   *uuid.UUID `gorm:"type:uuid"`
-	Type       string    // "login", "logout", "refresh", "mfa", "action"
+	Type       string     // "login", "logout", "refresh", "mfa", "action"
 	Success    bool
 	IPAddress  string
 	UserAgent  string
+	OTP        string     // YubiKey OTP
+	Timestamp  time.Time  // Authentication timestamp
 	Details    pgtype.JSONB `gorm:"type:jsonb;default:'{}'::jsonb"`
 }
 
@@ -160,4 +170,50 @@ type Location struct {
 	Address     string
 	Type        string `gorm:"type:varchar(20);default:'office';check:type IN ('office', 'home', 'event', 'other')"`
 	Active      bool   `gorm:"default:true"`
+}
+
+type UserStatus struct {
+	ID        uuid.UUID `gorm:"type:uuid;primary_key;"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt gorm.DeletedAt `gorm:"index"`
+
+	Name        string `gorm:"uniqueIndex"`
+	Description string
+	Type        string `gorm:"type:varchar(30);default:'working';check:type IN ('working', 'break', 'leave', 'travel', 'other')"`
+	Active      bool   `gorm:"default:true"`
+}
+
+type UserActivityHistory struct {
+	ID        uuid.UUID `gorm:"type:uuid;primary_key;"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+
+	UserID       uuid.UUID `gorm:"type:uuid;not null"`
+	User         User      `gorm:"foreignKey:UserID"`
+	ActionID     uuid.UUID `gorm:"type:uuid;not null"`
+	Action       Action    `gorm:"foreignKey:ActionID"`
+	FromDateTime time.Time `gorm:"not null"`
+	ToDateTime   *time.Time `gorm:"type:timestamp"`
+	LocationID   *uuid.UUID `gorm:"type:uuid"`
+	Location     *Location `gorm:"foreignKey:LocationID"`
+	StatusID     *uuid.UUID `gorm:"type:uuid"`
+	Status       *UserStatus `gorm:"foreignKey:StatusID"`
+	Details      pgtype.JSONB `gorm:"type:jsonb;default:'{}'::jsonb"`
+}
+
+// UserRole represents the many-to-many relationship between users and roles
+type UserRole struct {
+	UserID uuid.UUID `gorm:"type:uuid;primaryKey"`
+	RoleID uuid.UUID `gorm:"type:uuid;primaryKey"`
+	User   User      `gorm:"foreignKey:UserID"`
+	Role   Role      `gorm:"foreignKey:RoleID"`
+}
+
+// RolePermission represents the many-to-many relationship between roles and permissions
+type RolePermission struct {
+	RoleID       uuid.UUID `gorm:"type:uuid;primaryKey"`
+	PermissionID uuid.UUID `gorm:"type:uuid;primaryKey"`
+	Role         Role      `gorm:"foreignKey:RoleID"`
+	Permission   Permission `gorm:"foreignKey:PermissionID"`
 } 

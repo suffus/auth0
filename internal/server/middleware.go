@@ -43,18 +43,16 @@ func authMiddlewareRead(authService *services.AuthService, sessionService *servi
 				return
 			}
 
-			// Verify access count matches (prevents token reuse)
-			if session.AccessCount != claims.AccessCount {
-				errorResponse(c, http.StatusUnauthorized, "Access token is invalid (count mismatch)")
+			// Check if session is still valid (not invalidated by logout, etc.)
+			if !session.IsValid {
+				errorResponse(c, http.StatusUnauthorized, "Session has been invalidated")
 				c.Abort()
 				return
 			}
 
-			// Increment access count and update session
-			session.AccessCount++
-			err = sessionService.UpdateSession(session)
-			if err != nil {
-				errorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to update session: %v", err))
+			// Verify refresh count matches (prevents use of access tokens from before a refresh)
+			if session.RefreshCount != claims.RefreshCount {
+				errorResponse(c, http.StatusUnauthorized, "Access token is invalid (refresh count mismatch)")
 				c.Abort()
 				return
 			}

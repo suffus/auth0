@@ -76,7 +76,14 @@ func handleGetResource(resourceService *services.ResourceService) gin.HandlerFun
 
 func handleListResources(resourceService *services.ResourceService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		resources, err := resourceService.ListResources()
+		activeOnly := c.Query("active") == "true"
+		var resources []database.Resource
+		var err error
+		if activeOnly {
+			resources, err = resourceService.ListActiveResources()
+		} else {
+			resources, err = resourceService.ListResources()
+		}
 		if err != nil {
 			errorResponse(c, http.StatusInternalServerError, err.Error())
 			return

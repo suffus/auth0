@@ -147,4 +147,17 @@ type DeviceRegistration struct {
 	IPAddress       string
 	UserAgent       string
 	Notes           string
+}
+
+type Location struct {
+	ID        uuid.UUID `gorm:"type:uuid;primary_key;"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt gorm.DeletedAt `gorm:"index"`
+
+	Name        string `gorm:"uniqueIndex"`
+	Description string
+	Address     string
+	Type        string `gorm:"type:varchar(20);default:'office';check:type IN ('office', 'home', 'event', 'other')"`
+	Active      bool   `gorm:"default:true"`
 } 

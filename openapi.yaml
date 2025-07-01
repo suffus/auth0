@@ -126,6 +126,17 @@ components:
         last_used_at: { type: string, format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    Location:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        address: { type: string }
+        type: { type: string, enum: [office, home, event, other] }
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
 
 security:
   - DeviceAuth: []
@@ -504,6 +515,12 @@ paths:
       security: 
         - DeviceAuth: []
         - SessionAuth: []
+      parameters:
+        - name: active
+          in: query
+          required: false
+          schema: { type: boolean }
+          description: Filter to show only active users when set to true
       responses:
         '200':
           description: List of users
@@ -512,10 +529,10 @@ paths:
               schema:
                 type: object
                 properties:
-                  users:
+                  items:
                     type: array
                     items: { $ref: '#/components/schemas/User' }
-                  count: { type: integer }
+                  total: { type: integer }
         '401':
           description: Authentication failed
         '403':
@@ -783,6 +800,12 @@ paths:
     get:
       summary: List resources
       security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: active
+          in: query
+          required: false
+          schema: { type: boolean }
+          description: Filter to show only active resources when set to true
       responses:
         '200':
           description: List of resources
@@ -791,10 +814,10 @@ paths:
               schema:
                 type: object
                 properties:
-                  resources:
+                  items:
                     type: array
                     items: { $ref: '#/components/schemas/Resource' }
-                  count: { type: integer }
+                  total: { type: integer }
     post:
       summary: Create a resource
       security: [ { DeviceAuth: [] } ]
@@ -1037,6 +1060,12 @@ paths:
           in: query
           required: false
           schema: { type: string, format: uuid }
+          description: Filter devices by user ID
+        - name: active
+          in: query
+          required: false
+          schema: { type: boolean }
+          description: Filter to show only active devices when set to true
       responses:
         '200':
           description: List of devices
@@ -1045,10 +1074,10 @@ paths:
               schema:
                 type: object
                 properties:
-                  devices:
+                  items:
                     type: array
                     items: { $ref: '#/components/schemas/Device' }
-                  count: { type: integer }
+                  total: { type: integer }
     post:
       summary: Register a device
       security: [ { DeviceAuth: [] } ]
@@ -1122,4 +1151,107 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         '200':
-          description: Device deleted 
+          description: Device deleted
+
+  /locations:
+    get:
+      summary: List locations
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: active
+          in: query
+          required: false
+          schema: { type: boolean }
+          description: Filter to show only active locations when set to true
+        - name: type
+          in: query
+          required: false
+          schema: { type: string, enum: [office, home, event, other] }
+          description: Filter locations by type
+      responses:
+        '200':
+          description: List of locations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Location' }
+                  total: { type: integer }
+    post:
+      summary: Create a location
+      security: [ { DeviceAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                description: { type: string }
+                address: { type: string }
+                type: { type: string, enum: [office, home, event, other] }
+                active: { type: boolean }
+      responses:
+        '201':
+          description: Location created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Location' }
+
+  /locations/{id}:
+    get:
+      summary: Get location by ID
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Location details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Location' }
+    put:
+      summary: Update location
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                description: { type: string }
+                address: { type: string }
+                type: { type: string, enum: [office, home, event, other] }
+                active: { type: boolean }
+      responses:
+        '200':
+          description: Location updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Location' }
+    delete:
+      summary: Delete location (soft delete - marks as inactive)
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Location deleted (marked as inactive) 

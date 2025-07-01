@@ -68,6 +68,15 @@ func (s *UserService) ListUsers() ([]database.User, error) {
 	return users, nil
 }
 
+// ListActiveUsers retrieves only active users
+func (s *UserService) ListActiveUsers() ([]database.User, error) {
+	var users []database.User
+	if err := s.db.Preload("Roles").Where("active = ?", true).Find(&users).Error; err != nil {
+		return nil, fmt.Errorf("failed to fetch active users: %w", err)
+	}
+	return users, nil
+}
+
 // UpdateUser updates a user
 func (s *UserService) UpdateUser(userID uuid.UUID, updates map[string]interface{}) (*database.User, error) {
 	var user database.User

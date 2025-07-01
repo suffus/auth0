@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/YubiApp/internal/services"
 	"github.com/gin-gonic/gin"
@@ -17,6 +18,7 @@ func setupRouter(
 	actionService *services.ActionService,
 	deviceRegService *services.DeviceRegistrationService,
 	sessionService *services.SessionService,
+	locationService *services.LocationService,
 ) *gin.Engine {
 	router := gin.Default()
 
@@ -129,6 +131,16 @@ func setupRouter(
 			actions.PUT("/:id", authMiddlewareWrite(authService, "yubiapp:write"), handleUpdateAction(actionService))
 			actions.DELETE("/:id", authMiddlewareWrite(authService, "yubiapp:write"), handleDeleteAction(actionService))
 		}
+
+		// Location management - GET methods accept both device and session auth, write methods require device auth
+		locations := api.Group("/locations")
+		{
+			locations.GET("", authMiddlewareRead(authService, sessionService, "yubiapp:read"), handleListLocations(locationService))
+			locations.POST("", authMiddlewareWrite(authService, "yubiapp:write"), handleCreateLocation(locationService))
+			locations.GET("/:id", authMiddlewareRead(authService, sessionService, "yubiapp:read"), handleGetLocation(locationService))
+			locations.PUT("/:id", authMiddlewareWrite(authService, "yubiapp:write"), handleUpdateLocation(locationService))
+			locations.DELETE("/:id", authMiddlewareWrite(authService, "yubiapp:write"), handleDeleteLocation(locationService))
+		}
 	}
 
 	return router
@@ -156,10 +168,11 @@ func handleDeviceAuth(authService *services.AuthService) gin.HandlerFunc {
 				return
 			}
 
-			// Validate that it contains only valid hex characters
+			// Validate that it contains only valid modhex characters
+			validModhexChars := "cbdefghijklnrtuvCBDEFGHIJKLNRTUV"
 			for _, char := range req.AuthCode {
-				if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')) {
-					errorResponse(c, 400, "Invalid YubiKey OTP format. OTP should contain only hexadecimal characters (0-9, a-f, A-F).")
+				if !strings.ContainsRune(validModhexChars, char) {
+					errorResponse(c, 400, "Invalid YubiKey OTP format. OTP should contain only modhex characters (c, b, d, e, f, g, h, i, j, k, l, n, r, t, u, v).")
 					return
 				}
 			}

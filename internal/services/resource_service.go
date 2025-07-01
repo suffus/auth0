@@ -80,6 +80,15 @@ func (s *ResourceService) ListResources() ([]database.Resource, error) {
 	return resources, nil
 }
 
+// ListActiveResources retrieves only active resources
+func (s *ResourceService) ListActiveResources() ([]database.Resource, error) {
+	var resources []database.Resource
+	if err := s.db.Where("active = ?", true).Find(&resources).Error; err != nil {
+		return nil, fmt.Errorf("failed to fetch active resources: %w", err)
+	}
+	return resources, nil
+}
+
 // UpdateResource updates a resource
 func (s *ResourceService) UpdateResource(resourceID uuid.UUID, updates map[string]interface{}) (*database.Resource, error) {
 	var resource database.Resource

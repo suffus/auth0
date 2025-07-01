@@ -101,6 +101,24 @@ func (s *DeviceService) ListDevices(userID *uuid.UUID) ([]database.Device, error
 	return devices, nil
 }
 
+// ListActiveDevices retrieves only active devices, optionally filtered by userID
+func (s *DeviceService) ListActiveDevices(userID *uuid.UUID) ([]database.Device, error) {
+	var devices []database.Device
+	var err error
+
+	if userID != nil {
+		err = s.db.Preload("User").Where("user_id = ? AND active = ?", userID, true).Find(&devices).Error
+	} else {
+		err = s.db.Preload("User").Where("active = ?", true).Find(&devices).Error
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch active devices: %w", err)
+	}
+
+	return devices, nil
+}
+
 // UpdateDevice updates a device
 func (s *DeviceService) UpdateDevice(deviceID uuid.UUID, updates map[string]interface{}) (*database.Device, error) {
 	var device database.Device

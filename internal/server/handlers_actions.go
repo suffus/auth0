@@ -48,6 +48,12 @@ func handlePerformAction(authService *services.AuthService, actionService *servi
 			return
 		}
 
+		// Check if the action is active
+		if !action.Active {
+			errorResponse(c, http.StatusForbidden, "Action '"+actionName+"' is inactive and cannot be executed")
+			return
+		}
+
 		// Check if user has required permissions for the action
 		hasPermission, err := actionService.CheckUserPermissionsForAction(user.ID, actionName)
 		if err != nil {
@@ -110,7 +116,19 @@ func handlePerformAction(authService *services.AuthService, actionService *servi
 // handleListActions handles GET /actions
 func handleListActions(actionService *services.ActionService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		actions, err := actionService.ListActions()
+		// Check for active filter
+		var activeOnly *bool
+		if activeStr := c.Query("active"); activeStr != "" {
+			if activeStr == "true" {
+				active := true
+				activeOnly = &active
+			} else if activeStr == "false" {
+				active := false
+				activeOnly = &active
+			}
+		}
+
+		actions, err := actionService.ListActionsWithFilter(activeOnly)
 		if err != nil {
 			errorResponse(c, http.StatusInternalServerError, "Failed to list actions: "+err.Error())
 			return
@@ -122,7 +140,10 @@ func handleListActions(actionService *services.ActionService) gin.HandlerFunc {
 			actionList[i] = gin.H{
 				"id":                   action.ID,
 				"name":                 action.Name,
+				"activity_type":        action.ActivityType,
 				"required_permissions": action.RequiredPermissions,
+				"details":              action.Details,
+				"active":               action.Active,
 				"created_at":           action.CreatedAt,
 				"updated_at":           action.UpdatedAt,
 			}
@@ -153,7 +174,10 @@ func handleGetAction(actionService *services.ActionService) gin.HandlerFunc {
 		successResponse(c, gin.H{
 			"id":                   action.ID,
 			"name":                 action.Name,
+			"activity_type":        action.ActivityType,
 			"required_permissions": action.RequiredPermissions,
+			"details":              action.Details,
+			"active":               action.Active,
 			"created_at":           action.CreatedAt,
 			"updated_at":           action.UpdatedAt,
 		})
@@ -164,8 +188,11 @@ func handleGetAction(actionService *services.ActionService) gin.HandlerFunc {
 func handleCreateAction(actionService *services.ActionService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
-			Name                string   `json:"name" binding:"required"`
-			RequiredPermissions []string `json:"required_permissions"`
+			Name                string                 `json:"name" binding:"required"`
+			ActivityType        string                 `json:"activity_type" binding:"required"`
+			RequiredPermissions []string               `json:"required_permissions"`
+			Details             map[string]interface{} `json:"details"`
+			Active              bool                   `json:"active"`
 		}
 
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -173,7 +200,7 @@ func handleCreateAction(actionService *services.ActionService) gin.HandlerFunc {
 			return
 		}
 
-		action, err := actionService.CreateAction(req.Name, req.RequiredPermissions)
+		action, err := actionService.CreateAction(req.Name, req.ActivityType, req.RequiredPermissions, req.Details, req.Active)
 		if err != nil {
 			errorResponse(c, http.StatusInternalServerError, "Failed to create action: "+err.Error())
 			return
@@ -182,7 +209,10 @@ func handleCreateAction(actionService *services.ActionService) gin.HandlerFunc {
 		successResponse(c, gin.H{
 			"id":                   action.ID,
 			"name":                 action.Name,
+			"activity_type":        action.ActivityType,
 			"required_permissions": action.RequiredPermissions,
+			"details":              action.Details,
+			"active":               action.Active,
 			"created_at":           action.CreatedAt,
 			"updated_at":           action.UpdatedAt,
 		})
@@ -200,8 +230,11 @@ func handleUpdateAction(actionService *services.ActionService) gin.HandlerFunc {
 		}
 
 		var req struct {
-			Name                string   `json:"name" binding:"required"`
-			RequiredPermissions []string `json:"required_permissions"`
+			Name                string                 `json:"name" binding:"required"`
+			ActivityType        string                 `json:"activity_type"`
+			RequiredPermissions []string               `json:"required_permissions"`
+			Details             map[string]interface{} `json:"details"`
+			Active              *bool                  `json:"active"`
 		}
 
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -209,7 +242,7 @@ func handleUpdateAction(actionService *services.ActionService) gin.HandlerFunc {
 			return
 		}
 
-		action, err := actionService.UpdateAction(id, req.Name, req.RequiredPermissions)
+		action, err := actionService.UpdateAction(id, req.Name, req.ActivityType, req.RequiredPermissions, req.Details, req.Active)
 		if err != nil {
 			errorResponse(c, http.StatusInternalServerError, "Failed to update action: "+err.Error())
 			return
@@ -218,7 +251,10 @@ func handleUpdateAction(actionService *services.ActionService) gin.HandlerFunc {
 		successResponse(c, gin.H{
 			"id":                   action.ID,
 			"name":                 action.Name,
+			"activity_type":        action.ActivityType,
 			"required_permissions": action.RequiredPermissions,
+			"details":              action.Details,
+			"active":               action.Active,
 			"created_at":           action.CreatedAt,
 			"updated_at":           action.UpdatedAt,
 		})

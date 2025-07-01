@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/YubiApp/internal/services"
+	"github.com/YubiApp/internal/database"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )

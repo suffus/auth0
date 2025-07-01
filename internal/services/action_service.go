@@ -52,16 +52,41 @@ func (s *ActionService) ListActions() ([]database.Action, error) {
 }
 
 // CreateAction creates a new action
-func (s *ActionService) CreateAction(name string, requiredPermissions []string) (*database.Action, error) {
-	// Convert []string to pgtype.JSONB
-	var jsonb pgtype.JSONB
-	if err := jsonb.Set(requiredPermissions); err != nil {
+func (s *ActionService) CreateAction(name string, activityType string, requiredPermissions []string, details map[string]interface{}, active bool) (*database.Action, error) {
+	// Validate activity type
+	validTypes := []string{"user", "system", "automated", "other"}
+	validType := false
+	for _, t := range validTypes {
+		if activityType == t {
+			validType = true
+			break
+		}
+	}
+	if !validType {
+		return nil, fmt.Errorf("invalid activity type. Must be one of: %v", validTypes)
+	}
+
+	// Convert []string to pgtype.JSONB for required permissions
+	var permissionsJSONB pgtype.JSONB
+	if err := permissionsJSONB.Set(requiredPermissions); err != nil {
 		return nil, fmt.Errorf("failed to convert permissions to JSONB: %w", err)
+	}
+
+	// Convert details map to pgtype.JSONB
+	var detailsJSONB pgtype.JSONB
+	if details == nil {
+		details = make(map[string]interface{})
+	}
+	if err := detailsJSONB.Set(details); err != nil {
+		return nil, fmt.Errorf("failed to convert details to JSONB: %w", err)
 	}
 
 	action := &database.Action{
 		Name:                name,
-		RequiredPermissions: jsonb,
+		ActivityType:        activityType,
+		RequiredPermissions: permissionsJSONB,
+		Details:             detailsJSONB,
+		Active:              active,
 	}
 
 	if err := s.db.Create(action).Error; err != nil {
@@ -72,7 +97,7 @@ func (s *ActionService) CreateAction(name string, requiredPermissions []string) 
 }
 
 // UpdateAction updates an existing action
-func (s *ActionService) UpdateAction(id uuid.UUID, name string, requiredPermissions []string) (*database.Action, error) {
+func (s *ActionService) UpdateAction(id uuid.UUID, name string, activityType string, requiredPermissions []string, details map[string]interface{}, active *bool) (*database.Action, error) {
 	action := &database.Action{}
 	if err := s.db.Where("id = ?", id).First(action).Error; err != nil {
 		return nil, err
@@ -80,12 +105,42 @@ func (s *ActionService) UpdateAction(id uuid.UUID, name string, requiredPermissi
 
 	action.Name = name
 	
-	// Convert []string to pgtype.JSONB
-	var jsonb pgtype.JSONB
-	if err := jsonb.Set(requiredPermissions); err != nil {
+	// Validate activity type if provided
+	if activityType != "" {
+		validTypes := []string{"user", "system", "automated", "other"}
+		validType := false
+		for _, t := range validTypes {
+			if activityType == t {
+				validType = true
+				break
+			}
+		}
+		if !validType {
+			return nil, fmt.Errorf("invalid activity type. Must be one of: %v", validTypes)
+		}
+		action.ActivityType = activityType
+	}
+	
+	// Convert []string to pgtype.JSONB for required permissions
+	var permissionsJSONB pgtype.JSONB
+	if err := permissionsJSONB.Set(requiredPermissions); err != nil {
 		return nil, fmt.Errorf("failed to convert permissions to JSONB: %w", err)
 	}
-	action.RequiredPermissions = jsonb
+	action.RequiredPermissions = permissionsJSONB
+
+	// Convert details map to pgtype.JSONB
+	if details != nil {
+		var detailsJSONB pgtype.JSONB
+		if err := detailsJSONB.Set(details); err != nil {
+			return nil, fmt.Errorf("failed to convert details to JSONB: %w", err)
+		}
+		action.Details = detailsJSONB
+	}
+
+	// Update active status if provided
+	if active != nil {
+		action.Active = *active
+	}
 
 	if err := s.db.Save(action).Error; err != nil {
 		return nil, err
@@ -148,4 +203,19 @@ func (s *ActionService) CheckUserPermissionsForAction(userID uuid.UUID, actionNa
 	}
 
 	return true, nil
+}
+
+// ListActionsWithFilter retrieves actions with optional active filter
+func (s *ActionService) ListActionsWithFilter(activeOnly *bool) ([]database.Action, error) {
+	var actions []database.Action
+	query := s.db
+
+	if activeOnly != nil && *activeOnly {
+		query = query.Where("active = ?", true)
+	}
+
+	if err := query.Find(&actions).Error; err != nil {
+		return nil, err
+	}
+	return actions, nil
 } 

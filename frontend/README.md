@@ -216,3 +216,47 @@ The application includes comprehensive error handling:
 ## License
 
 This project is part of the YubiApp system and follows the same license terms.
+
+## User Activity CLI Commands
+
+### List User Activity
+```
+yubiapp-cli user-activity list [flags]
+```
+**Flags:**
+- `--from-datetime` (RFC3339)
+- `--to-datetime` (RFC3339)
+- `--user-ids` (comma-separated UUIDs)
+- `--location-ids` (comma-separated UUIDs)
+- `--status-ids` (comma-separated UUIDs)
+- `--action-ids` (comma-separated UUIDs)
+- `--limit` (default: 50)
+- `--offset` (default: 0)
+
+### User Activity Summary
+```
+yubiapp-cli user-activity summary --from-datetime <start> --to-datetime <end> [--user-ids <ids>]
+```
+Shows a summary report for the given period and users.
+
+### User Activity for a Specific User
+```
+yubiapp-cli user-activity user <user-id> [flags]
+```
+**Flags:** (same as list)
+
+**Example Output:**
+```
+Found 3 activities (showing 1-3 of 3):
+
+ID: 123e4567-e89b-12d3-a456-426614174000
+User: alice (alice@example.com)
+Action: user-signin
+From: 2023-01-01T09:00:00Z
+To: 2023-01-01T17:00:00Z
+Location: Main Office
+Status: Signed In
+Created: 2023-01-01T09:00:00Z
+---
+...
+```

@@ -27,6 +27,8 @@ type Server struct {
 	deviceRegService      *services.DeviceRegistrationService
 	sessionService        *services.SessionService
 	locationService       *services.LocationService
+	userStatusService     *services.UserStatusService
+	userActivityService   *services.UserActivityService
 	httpServer            *http.Server
 }
 
@@ -49,6 +51,8 @@ func New(cfg *config.Config) *Server {
 	deviceRegService := services.NewDeviceRegistrationService(db)
 	sessionService := services.NewSessionService(cfg)
 	locationService := services.NewLocationService(db)
+	userStatusService := services.NewUserStatusService(db)
+	userActivityService := services.NewUserActivityService(db)
 
 	// Set Gin mode
 	if !cfg.Server.Debug {
@@ -56,7 +60,7 @@ func New(cfg *config.Config) *Server {
 	}
 
 	// Setup router
-	router := setupRouter(authService, userService, roleService, resourceService, permissionService, deviceService, actionService, deviceRegService, sessionService, locationService)
+	router := setupRouter(authService, userService, roleService, resourceService, permissionService, deviceService, actionService, deviceRegService, sessionService, locationService, userStatusService, userActivityService)
 
 	// Create HTTP server
 	httpServer := &http.Server{
@@ -80,6 +84,8 @@ func New(cfg *config.Config) *Server {
 		deviceRegService:      deviceRegService,
 		sessionService:        sessionService,
 		locationService:       locationService,
+		userStatusService:     userStatusService,
+		userActivityService:   userActivityService,
 		httpServer:            httpServer,
 	}
 }
@@ -123,6 +129,8 @@ func initDatabase(cfg config.DatabaseConfig) (*gorm.DB, error) {
 		&database.AuthenticationLog{},
 		&database.DeviceRegistration{},
 		&database.Location{},
+		&database.UserStatus{},
+		&database.UserActivityHistory{},
 	); err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}

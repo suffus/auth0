@@ -107,10 +107,18 @@ components:
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
+        activity_type: 
+          type: string
+          enum: [user, system, automated, other]
+          description: Type of activity this action represents
         required_permissions:
           type: array
           items: { type: string }
           description: Array of permission strings in format "resource:action"
+        details:
+          type: object
+          description: JSON object containing additional details about the action
+        active: { type: boolean, description: Whether the action is active and can be executed }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
     Device:
@@ -137,6 +145,71 @@ components:
         active: { type: boolean }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    UserStatus:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        type: { type: string, enum: [working, break, leave, travel, other] }
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    UserActivityHistory:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user:
+          $ref: '#/components/schemas/User'
+        action:
+          $ref: '#/components/schemas/Action'
+        from_datetime:
+          type: string
+          format: date-time
+        to_datetime:
+          type: string
+          format: date-time
+          nullable: true
+        location:
+          $ref: '#/components/schemas/Location'
+          nullable: true
+        status:
+          $ref: '#/components/schemas/UserStatus'
+          nullable: true
+        details:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    UserActivitySummary:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        user_name:
+          type: string
+        total_hours:
+          type: number
+          format: float
+        break_hours:
+          type: number
+          format: float
+        work_hours:
+          type: number
+          format: float
+        meeting_hours:
+          type: number
+          format: float
+        sign_ins:
+          type: integer
+        sign_outs:
+          type: integer
 
 security:
   - DeviceAuth: []
@@ -962,6 +1035,12 @@ paths:
     get:
       summary: List actions
       security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: active
+          in: query
+          required: false
+          schema: { type: boolean }
+          description: Filter to show only active actions when set to true
       responses:
         '200':
           description: List of actions
@@ -983,13 +1062,21 @@ paths:
           application/json:
             schema:
               type: object
-              required: [name]
+              required: [name, activity_type]
               properties:
                 name: { type: string }
+                activity_type: 
+                  type: string
+                  enum: [user, system, automated, other]
+                  description: Type of activity this action represents
                 required_permissions:
                   type: array
                   items: { type: string }
                   description: Array of permission strings in format "resource:action"
+                details:
+                  type: object
+                  description: JSON object containing additional details about the action
+                active: { type: boolean, description: Whether the action is active and can be executed }
       responses:
         '201':
           description: Action created
@@ -1029,10 +1116,18 @@ paths:
               required: [name]
               properties:
                 name: { type: string }
+                activity_type: 
+                  type: string
+                  enum: [user, system, automated, other]
+                  description: Type of activity this action represents
                 required_permissions:
                   type: array
                   items: { type: string }
                   description: Array of permission strings in format "resource:action"
+                details:
+                  type: object
+                  description: JSON object containing additional details about the action
+                active: { type: boolean, description: Whether the action is active and can be executed }
       responses:
         '200':
           description: Action updated
@@ -1254,4 +1349,292 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         '204':
-          description: Location deleted (marked as inactive) 
+          description: Location deleted (marked as inactive)
+
+  /user-statuses:
+    get:
+      summary: List user statuses
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: active
+          in: query
+          required: false
+          schema: { type: boolean }
+          description: Filter to show only active user statuses when set to true
+        - name: type
+          in: query
+          required: false
+          schema: { type: string, enum: [working, break, leave, travel, other] }
+          description: Filter user statuses by type
+      responses:
+        '200':
+          description: List of user statuses
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/UserStatus' }
+                  total: { type: integer }
+    post:
+      summary: Create a user status
+      security: [ { DeviceAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                description: { type: string }
+                type: { type: string, enum: [working, break, leave, travel, other] }
+                active: { type: boolean }
+      responses:
+        '201':
+          description: User status created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserStatus' }
+
+  /user-statuses/{id}:
+    get:
+      summary: Get user status by ID
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: User status details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserStatus' }
+    put:
+      summary: Update user status
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                description: { type: string }
+                type: { type: string, enum: [working, break, leave, travel, other] }
+                active: { type: boolean }
+      responses:
+        '200':
+          description: User status updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserStatus' }
+    delete:
+      summary: Delete user status (soft delete - marks as inactive)
+      security: [ { DeviceAuth: [] } ]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: User status deleted (marked as inactive)
+
+  /api/v1/user-activity:
+    get:
+      summary: List user activity history
+      description: List user activity history with optional filters (time, user, location, status, action).
+      tags: [UserActivity]
+      parameters:
+        - in: query
+          name: from_datetime
+          schema:
+            type: string
+            format: date-time
+          description: Filter activities from this datetime (RFC3339)
+        - in: query
+          name: to_datetime
+          schema:
+            type: string
+            format: date-time
+          description: Filter activities to this datetime (RFC3339)
+        - in: query
+          name: user_ids
+          schema:
+            type: string
+          description: Comma-separated list of user IDs
+        - in: query
+          name: location_ids
+          schema:
+            type: string
+          description: Comma-separated list of location IDs
+        - in: query
+          name: status_ids
+          schema:
+            type: string
+          description: Comma-separated list of status IDs
+        - in: query
+          name: action_ids
+          schema:
+            type: string
+          description: Comma-separated list of action IDs
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 50
+          description: Maximum number of activities to return
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            default: 0
+          description: Number of activities to skip
+      responses:
+        '200':
+          description: List of user activity history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UserActivityHistory'
+                  meta:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      limit:
+                        type: integer
+                      offset:
+                        type: integer
+
+  /api/v1/user-activity/summary:
+    get:
+      summary: Get user activity summary
+      description: Get a summary of user activity for attendance reports.
+      tags: [UserActivity]
+      parameters:
+        - in: query
+          name: from_datetime
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: Start datetime (RFC3339)
+        - in: query
+          name: to_datetime
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: End datetime (RFC3339)
+        - in: query
+          name: user_ids
+          schema:
+            type: string
+          description: Comma-separated list of user IDs
+      responses:
+        '200':
+          description: User activity summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UserActivitySummary'
+
+  /api/v1/user-activity/{user_id}:
+    get:
+      summary: Get activity for a specific user
+      description: Get activity history for a specific user with optional filters.
+      tags: [UserActivity]
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: from_datetime
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: to_datetime
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 50
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of user activity history for the user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UserActivityHistory'
+                  meta:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      limit:
+                        type: integer
+                      offset:
+                        type: integer
+
+  /api/v1/user-activity/activity/{id}:
+    get:
+      summary: Get activity by ID
+      description: Get a single user activity record by its ID.
+      tags: [UserActivity]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User activity record
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/UserActivityHistory' 

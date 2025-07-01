@@ -19,6 +19,8 @@ func setupRouter(
 	deviceRegService *services.DeviceRegistrationService,
 	sessionService *services.SessionService,
 	locationService *services.LocationService,
+	userStatusService *services.UserStatusService,
+	userActivityService *services.UserActivityService,
 ) *gin.Engine {
 	router := gin.Default()
 
@@ -140,6 +142,25 @@ func setupRouter(
 			locations.GET("/:id", authMiddlewareRead(authService, sessionService, "yubiapp:read"), handleGetLocation(locationService))
 			locations.PUT("/:id", authMiddlewareWrite(authService, "yubiapp:write"), handleUpdateLocation(locationService))
 			locations.DELETE("/:id", authMiddlewareWrite(authService, "yubiapp:write"), handleDeleteLocation(locationService))
+		}
+
+		// User status management - GET methods accept both device and session auth, write methods require device auth
+		userStatuses := api.Group("/user-statuses")
+		{
+			userStatuses.GET("", authMiddlewareRead(authService, sessionService, "yubiapp:read"), handleListUserStatuses(userStatusService))
+			userStatuses.POST("", authMiddlewareWrite(authService, "yubiapp:write"), handleCreateUserStatus(userStatusService))
+			userStatuses.GET("/:id", authMiddlewareRead(authService, sessionService, "yubiapp:read"), handleGetUserStatus(userStatusService))
+			userStatuses.PUT("/:id", authMiddlewareWrite(authService, "yubiapp:write"), handleUpdateUserStatus(userStatusService))
+			userStatuses.DELETE("/:id", authMiddlewareWrite(authService, "yubiapp:write"), handleDeleteUserStatus(userStatusService))
+		}
+
+		// User activity history - read-only operations, accept both device and session auth
+		userActivity := api.Group("/user-activity")
+		{
+			userActivity.GET("", authMiddlewareRead(authService, sessionService, "yubiapp:read"), handleGetUserActivity(userActivityService))
+			userActivity.GET("/summary", authMiddlewareRead(authService, sessionService, "yubiapp:read"), handleGetUserActivitySummary(userActivityService))
+			userActivity.GET("/:user_id", authMiddlewareRead(authService, sessionService, "yubiapp:read"), handleGetUserActivityByUser(userActivityService))
+			userActivity.GET("/activity/:id", authMiddlewareRead(authService, sessionService, "yubiapp:read"), handleGetActivityByID(userActivityService))
 		}
 	}
 

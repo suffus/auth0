@@ -258,6 +258,109 @@ The CLI tool uses the same configuration file as the main application (`config.y
 ./yubiapp-cli location delete "550e8400-e29b-41d4-a716-446655440000"
 ```
 
+### User Status Management
+
+#### Create a new user status
+
+```bash
+./yubiapp-cli user-status create \
+  --name "Signed In" \
+  --description "User is currently signed in and working" \
+  --type "working" \
+  --active true
+```
+
+#### List all user statuses
+
+```bash
+./yubiapp-cli user-status list
+```
+
+#### List only active user statuses
+
+```bash
+./yubiapp-cli user-status list --active-only
+```
+
+#### Update a user status
+
+```bash
+./yubiapp-cli user-status update "550e8400-e29b-41d4-a716-446655440000" \
+  --name "On Break" \
+  --description "User is currently on a break" \
+  --type "break" \
+  --active true
+```
+
+#### Delete a user status (soft delete - marks as inactive)
+
+```bash
+# By name
+./yubiapp-cli user-status delete "Signed In"
+
+# By UUID
+./yubiapp-cli user-status delete "550e8400-e29b-41d4-a716-446655440000"
+```
+
+### Action Management
+
+#### Create a new action
+
+```bash
+./yubiapp-cli action create \
+  --name "ssh-login" \
+  --activity-type "user" \
+  --required-permission "ssh:login" \
+  --details '{"description": "SSH login to server", "timeout": 300}' \
+  --active true
+```
+
+#### List all actions
+
+```bash
+./yubiapp-cli action list
+```
+
+#### List only active actions
+
+```bash
+./yubiapp-cli action list --active-only
+```
+
+#### Get a specific action
+
+```bash
+# By name
+./yubiapp-cli action get "ssh-login"
+
+# By UUID
+./yubiapp-cli action get "550e8400-e29b-41d4-a716-446655440000"
+```
+
+#### Update an action
+
+```bash
+./yubiapp-cli action update "550e8400-e29b-41d4-a716-446655440000" \
+  --name "ssh-login" \
+  --activity-type "system" \
+  --required-permission "ssh:login" \
+  --required-permission "ssh:admin" \
+  --details '{"description": "SSH login with admin privileges", "timeout": 600}' \
+  --active false
+```
+
+**Note:** To set an action as inactive, use `--active=false`. The `--active` flag defaults to `true` when creating actions, but in update commands, it only changes the value if explicitly specified.
+
+#### Delete an action
+
+```bash
+# By name
+./yubiapp-cli action delete "ssh-login"
+
+# By UUID
+./yubiapp-cli action delete "550e8400-e29b-41d4-a716-446655440000"
+```
+
 ### Assignment Management
 
 #### Assign a user to a role
@@ -314,7 +417,26 @@ Here's a complete example of setting up a user with roles, resources, permission
   --last-name "User" \
   --active true
 
-# 2. Create locations
+# 2. Create user statuses
+./yubiapp-cli user-status create \
+  --name "Signed In" \
+  --description "User is currently signed in and working" \
+  --type "working" \
+  --active true
+
+./yubiapp-cli user-status create \
+  --name "On Break" \
+  --description "User is currently on a break" \
+  --type "break" \
+  --active true
+
+./yubiapp-cli user-status create \
+  --name "On Leave" \
+  --description "User is on leave (sick, vacation, etc.)" \
+  --type "leave" \
+  --active true
+
+# 3. Create locations
 ./yubiapp-cli location create \
   --name "Main Office" \
   --description "Primary office location" \
@@ -329,7 +451,7 @@ Here's a complete example of setting up a user with roles, resources, permission
   --type "office" \
   --active true
 
-# 3. Create resources
+# 4. Create resources
 ./yubiapp-cli resource create \
   --name "web-server-01" \
   --type "server" \
@@ -342,12 +464,12 @@ Here's a complete example of setting up a user with roles, resources, permission
   --location "datacenter-west" \
   --department "Engineering"
 
-# 4. Create admin role
+# 5. Create admin role
 ./yubiapp-cli role create \
   --name "admin" \
   --description "Administrator with full access"
 
-# 5. Create permissions for resources
+# 6. Create permissions for resources
 ./yubiapp-cli permission create \
   --resource-id "WEB_SERVER_RESOURCE_UUID" \
   --action "read" \
@@ -368,24 +490,25 @@ Here's a complete example of setting up a user with roles, resources, permission
   --action "write" \
   --effect "allow"
 
-# 6. Assign permissions to admin role
+# 7. Assign permissions to admin role
 ./yubiapp-cli assign permission-role "PERMISSION_UUID_1" "admin"
 ./yubiapp-cli assign permission-role "PERMISSION_UUID_2" "admin"
 ./yubiapp-cli assign permission-role "PERMISSION_UUID_3" "admin"
 ./yubiapp-cli assign permission-role "PERMISSION_UUID_4" "admin"
 
-# 7. Assign user to admin role
+# 8. Assign user to admin role
 ./yubiapp-cli assign user-role "admin@example.com" "admin"
 
-# 8. Add a YubiKey device for the user
+# 9. Add a YubiKey device for the user
 ./yubiapp-cli device create \
   --user-id "USER_UUID" \
   --type "yubikey" \
   --identifier "ccccccbchvth" \
   --active true
 
-# 9. Verify the setup
+# 10. Verify the setup
 ./yubiapp-cli user list
+./yubiapp-cli user-status list
 ./yubiapp-cli location list
 ./yubiapp-cli resource list
 ./yubiapp-cli role list
@@ -410,6 +533,16 @@ The CLI supports the following location types:
 - **event**: Event or temporary locations
 - **other**: Other location types
 
+## User Status Types
+
+The CLI supports the following user status types:
+
+- **working**: User is actively working
+- **break**: User is on a break
+- **leave**: User is on leave (sick, vacation, etc.)
+- **travel**: User is traveling for business
+- **other**: Other status types
+
 ## Device Types
 
 The CLI supports the following device types:
@@ -419,16 +552,25 @@ The CLI supports the following device types:
 - **sms**: SMS-based authentication
 - **email**: Email-based authentication
 
+## Activity Types
+
+The CLI supports the following activity types for actions:
+
+- **user**: Actions performed by users (e.g., login, logout, manual operations)
+- **system**: Actions performed by the system (e.g., automated processes, background tasks)
+- **automated**: Actions performed by automated systems or scripts
+- **other**: Other types of actions that don't fit the above categories
+
 ## Notes
 
 - For TOTP devices, if no secret is provided, a random 32-byte secret will be automatically generated
 - User passwords are automatically hashed using bcrypt
 - All UUIDs are automatically generated for new entities
-- The tool validates device types, resource types, location types, and permission effects
+- The tool validates device types, resource types, location types, user status types, and permission effects
 - Duplicate assignments are prevented (users can't be assigned to the same role twice)
 - Resources are now properly separated from permissions, allowing for better resource management
-- The `--active-only` flag can be used with list commands to show only active entities (users, resources, devices, locations)
-- Location deletion is a soft delete that marks the location as inactive rather than removing it from the database
+- The `--active-only` flag can be used with list commands to show only active entities (users, resources, devices, locations, user statuses)
+- Location and user status deletion are soft deletes that mark entities as inactive rather than removing them from the database
 - The tool provides detailed error messages for common issues
 
 ## Error Handling

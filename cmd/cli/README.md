@@ -40,6 +40,12 @@ The CLI tool uses the same configuration file as the main application (`config.y
 ./yubiapp-cli user list
 ```
 
+#### List only active users
+
+```bash
+./yubiapp-cli user list --active-only
+```
+
 #### Delete a user
 
 ```bash
@@ -67,6 +73,12 @@ The CLI tool uses the same configuration file as the main application (`config.y
 
 ```bash
 ./yubiapp-cli resource list
+```
+
+#### List only active resources
+
+```bash
+./yubiapp-cli resource list --active-only
 ```
 
 #### Delete a resource
@@ -176,16 +188,74 @@ The CLI tool uses the same configuration file as the main application (`config.y
 ./yubiapp-cli device list
 ```
 
+#### List only active devices
+
+```bash
+./yubiapp-cli device list --active-only
+```
+
 #### List devices for a specific user
 
 ```bash
 ./yubiapp-cli device list --user-id "550e8400-e29b-41d4-a716-446655440000"
 ```
 
+#### List only active devices for a specific user
+
+```bash
+./yubiapp-cli device list --user-id "550e8400-e29b-41d4-a716-446655440000" --active-only
+```
+
 #### Delete a device
 
 ```bash
 ./yubiapp-cli device delete "550e8400-e29b-41d4-a716-446655440000"
+```
+
+### Location Management
+
+#### Create a new location
+
+```bash
+./yubiapp-cli location create \
+  --name "Main Office" \
+  --description "Primary office location" \
+  --address "123 Main St, City, State 12345" \
+  --type "office" \
+  --active true
+```
+
+#### List all locations
+
+```bash
+./yubiapp-cli location list
+```
+
+#### List only active locations
+
+```bash
+./yubiapp-cli location list --active-only
+```
+
+#### Update a location
+
+```bash
+./yubiapp-cli location update "550e8400-e29b-41d4-a716-446655440000" \
+  --name "Updated Office Name" \
+  --description "Updated description" \
+  --address "456 New St, City, State 12345" \
+  --type "office" \
+  --active false
+```
+
+#### Delete a location (soft delete - marks as inactive)
+
+```bash
+# By name
+./yubiapp-cli location delete "Main Office"
+
+# By UUID
+./yubiapp-cli location delete "550e8400-e29b-41d4-a716-446655440000"
 ```
 
 ### Assignment Management
@@ -244,7 +314,22 @@ Here's a complete example of setting up a user with roles, resources, permission
   --last-name "User" \
   --active true
 
-# 2. Create resources
+# 2. Create locations
+./yubiapp-cli location create \
+  --name "Main Office" \
+  --description "Primary office location" \
+  --address "123 Main St, City, State 12345" \
+  --type "office" \
+  --active true
+
+./yubiapp-cli location create \
+  --name "Data Center East" \
+  --description "Primary data center" \
+  --address "456 Tech Blvd, City, State 12345" \
+  --type "office" \
+  --active true
+
+# 3. Create resources
 ./yubiapp-cli resource create \
   --name "web-server-01" \
   --type "server" \
@@ -257,12 +342,12 @@ Here's a complete example of setting up a user with roles, resources, permission
   --location "datacenter-west" \
   --department "Engineering"
 
-# 3. Create admin role
+# 4. Create admin role
 ./yubiapp-cli role create \
   --name "admin" \
   --description "Administrator with full access"
 
-# 4. Create permissions for resources
+# 5. Create permissions for resources
 ./yubiapp-cli permission create \
   --resource-id "WEB_SERVER_RESOURCE_UUID" \
   --action "read" \
@@ -283,24 +368,25 @@ Here's a complete example of setting up a user with roles, resources, permission
   --action "write" \
   --effect "allow"
 
-# 5. Assign permissions to admin role
+# 6. Assign permissions to admin role
 ./yubiapp-cli assign permission-role "PERMISSION_UUID_1" "admin"
 ./yubiapp-cli assign permission-role "PERMISSION_UUID_2" "admin"
 ./yubiapp-cli assign permission-role "PERMISSION_UUID_3" "admin"
 ./yubiapp-cli assign permission-role "PERMISSION_UUID_4" "admin"
 
-# 6. Assign user to admin role
+# 7. Assign user to admin role
 ./yubiapp-cli assign user-role "admin@example.com" "admin"
 
-# 7. Add a YubiKey device for the user
+# 8. Add a YubiKey device for the user
 ./yubiapp-cli device create \
   --user-id "USER_UUID" \
   --type "yubikey" \
   --identifier "ccccccbchvth" \
   --active true
 
-# 8. Verify the setup
+# 9. Verify the setup
 ./yubiapp-cli user list
+./yubiapp-cli location list
 ./yubiapp-cli resource list
 ./yubiapp-cli role list
 ./yubiapp-cli device list --user-id "USER_UUID"
@@ -314,6 +400,15 @@ The CLI supports the following resource types:
 - **service**: Application services or microservices
 - **database**: Database instances
 - **application**: Applications or software systems
+
+## Location Types
+
+The CLI supports the following location types:
+
+- **office**: Office locations
+- **home**: Home/remote work locations
+- **event**: Event or temporary locations
+- **other**: Other location types
 
 ## Device Types
 
@@ -329,9 +424,11 @@ The CLI supports the following device types:
 - For TOTP devices, if no secret is provided, a random 32-byte secret will be automatically generated
 - User passwords are automatically hashed using bcrypt
 - All UUIDs are automatically generated for new entities
-- The tool validates device types, resource types, and permission effects
+- The tool validates device types, resource types, location types, and permission effects
 - Duplicate assignments are prevented (users can't be assigned to the same role twice)
 - Resources are now properly separated from permissions, allowing for better resource management
+- The `--active-only` flag can be used with list commands to show only active entities (users, resources, devices, locations)
+- Location deletion is a soft delete that marks the location as inactive rather than removing it from the database
 - The tool provides detailed error messages for common issues
 
 ## Error Handling

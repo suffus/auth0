@@ -88,7 +88,14 @@ func handleGetUser(userService *services.UserService) gin.HandlerFunc {
 
 func handleListUsers(userService *services.UserService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		users, err := userService.ListUsers()
+		activeOnly := c.Query("active") == "true"
+		var users []database.User
+		var err error
+		if activeOnly {
+			users, err = userService.ListActiveUsers()
+		} else {
+			users, err = userService.ListUsers()
+		}
 		if err != nil {
 			errorResponse(c, http.StatusInternalServerError, err.Error())
 			return

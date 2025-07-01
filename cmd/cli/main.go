@@ -116,6 +116,7 @@ func main() {
 	rootCmd.AddCommand(authenticateCmd)
 	rootCmd.AddCommand(actionCmd)
 	rootCmd.AddCommand(logActionCmd)
+	rootCmd.AddCommand(locationCmd)
 
 	// Add device registration commands
 	deviceCmd.AddCommand(registerDeviceCmd)
@@ -164,6 +165,7 @@ func initDatabase(cfg config.DatabaseConfig) (*gorm.DB, error) {
 		&database.Session{},
 		&database.AuthenticationLog{},
 		&database.DeviceRegistration{},
+		&database.Location{},
 	); err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
@@ -340,8 +342,21 @@ var listUsersCmd = &cobra.Command{
 	Short: "List all users",
 	Long:  "Display all users in the system",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		activeOnly, _ := cmd.Flags().GetBool("active-only")
+		
+		// Create user service
+		userService := services.NewUserService(db)
+		
 		var users []database.User
-		if err := db.Preload("Roles").Find(&users).Error; err != nil {
+		var err error
+		
+		if activeOnly {
+			users, err = userService.ListActiveUsers()
+		} else {
+			users, err = userService.ListUsers()
+		}
+		
+		if err != nil {
 			return fmt.Errorf("failed to fetch users: %w", err)
 		}
 
@@ -808,8 +823,21 @@ var listResourcesCmd = &cobra.Command{
 	Short: "List all resources",
 	Long:  "Display all resources in the system",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		activeOnly, _ := cmd.Flags().GetBool("active-only")
+		
+		// Create resource service
+		resourceService := services.NewResourceService(db)
+		
 		var resources []database.Resource
-		if err := db.Find(&resources).Error; err != nil {
+		var err error
+		
+		if activeOnly {
+			resources, err = resourceService.ListActiveResources()
+		} else {
+			resources, err = resourceService.ListResources()
+		}
+		
+		if err != nil {
 			return fmt.Errorf("failed to fetch resources: %w", err)
 		}
 
@@ -998,18 +1026,27 @@ var listDevicesCmd = &cobra.Command{
 	Long:  "List all devices or devices for a specific user",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		userID, _ := cmd.Flags().GetString("user-id")
+		activeOnly, _ := cmd.Flags().GetBool("active-only")
 
-		var devices []database.Device
-		var err error
-
+		// Create device service
+		deviceService := services.NewDeviceService(db)
+		
+		var userIDPtr *uuid.UUID
 		if userID != "" {
 			user, err := FindUserByString(db, userID)
 			if err != nil {
 				return err
 			}
-			err = db.Preload("User").Where("user_id = ?", user.ID).Find(&devices).Error
+			userIDPtr = &user.ID
+		}
+
+		var devices []database.Device
+		var err error
+
+		if activeOnly {
+			devices, err = deviceService.ListActiveDevices(userIDPtr)
 		} else {
-			err = db.Preload("User").Find(&devices).Error
+			devices, err = deviceService.ListDevices(userIDPtr)
 		}
 
 		if err != nil {
@@ -2065,6 +2102,179 @@ var deviceHistoryCmd = &cobra.Command{
 	},
 }
 
+// Location management commands
+var locationCmd = &cobra.Command{
+	Use:   "location",
+	Short: "Manage locations",
+	Long:  "Create, update, delete, and list locations",
+}
+
+var createLocationCmd = &cobra.Command{
+	Use:   "create",
+	Short: "Create a new location",
+	Long:  "Create a new location with the specified details",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name, _ := cmd.Flags().GetString("name")
+		description, _ := cmd.Flags().GetString("description")
+		address, _ := cmd.Flags().GetString("address")
+		locationType, _ := cmd.Flags().GetString("type")
+		active, _ := cmd.Flags().GetBool("active")
+
+		// Create location service
+		locationService := services.NewLocationService(db)
+
+		// Create location
+		location, err := locationService.CreateLocation(name, description, address, locationType, active)
+		if err != nil {
+			return fmt.Errorf("failed to create location: %w", err)
+		}
+
+		fmt.Printf("Location created successfully:\n")
+		fmt.Printf("  ID: %s\n", location.ID)
+		fmt.Printf("  Name: %s\n", location.Name)
+		fmt.Printf("  Description: %s\n", location.Description)
+		fmt.Printf("  Address: %s\n", location.Address)
+		fmt.Printf("  Type: %s\n", location.Type)
+		fmt.Printf("  Active: %t\n", location.Active)
+		fmt.Printf("  Created: %s\n", location.CreatedAt.Format(time.RFC3339))
+
+		return nil
+	},
+}
+
+var listLocationsCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List locations",
+	Long:  "List all locations or filter by type/active status",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		activeOnly, _ := cmd.Flags().GetBool("active-only")
+		locationType, _ := cmd.Flags().GetString("type")
+
+		// Create location service
+		locationService := services.NewLocationService(db)
+
+		var locations []database.Location
+		var err error
+
+		if locationType != "" {
+			locations, err = locationService.ListLocationsByType(locationType)
+		} else if activeOnly {
+			locations, err = locationService.ListActiveLocations()
+		} else {
+			locations, err = locationService.ListLocations()
+		}
+
+		if err != nil {
+			return fmt.Errorf("failed to list locations: %w", err)
+		}
+
+		if len(locations) == 0 {
+			fmt.Println("No locations found.")
+			return nil
+		}
+
+		fmt.Printf("Found %d location(s):\n\n", len(locations))
+		for i, location := range locations {
+			fmt.Printf("%d. %s (%s)\n", i+1, location.Name, location.ID)
+			fmt.Printf("   Description: %s\n", location.Description)
+			fmt.Printf("   Address: %s\n", location.Address)
+			fmt.Printf("   Type: %s\n", location.Type)
+			fmt.Printf("   Active: %t\n", location.Active)
+			fmt.Printf("   Created: %s\n", location.CreatedAt.Format(time.RFC3339))
+			fmt.Println()
+		}
+
+		return nil
+	},
+}
+
+var deleteLocationCmd = &cobra.Command{
+	Use:   "delete [location-id]",
+	Short: "Delete a location",
+	Long:  "Delete a location by ID (marks as inactive)",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		locationID := args[0]
+
+		// Parse location ID
+		locationUUID, err := uuid.Parse(locationID)
+		if err != nil {
+			return fmt.Errorf("invalid location ID: %w", err)
+		}
+
+		// Create location service
+		locationService := services.NewLocationService(db)
+
+		// Delete location (soft delete)
+		err = locationService.DeleteLocation(locationUUID)
+		if err != nil {
+			return fmt.Errorf("failed to delete location: %w", err)
+		}
+
+		fmt.Printf("Location %s deleted successfully (marked as inactive).\n", locationID)
+		return nil
+	},
+}
+
+var updateLocationCmd = &cobra.Command{
+	Use:   "update [location-id]",
+	Short: "Update a location",
+	Long:  "Update a location by ID",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		locationID := args[0]
+
+		// Parse location ID
+		locationUUID, err := uuid.Parse(locationID)
+		if err != nil {
+			return fmt.Errorf("invalid location ID: %w", err)
+		}
+
+		// Get flags
+		name, _ := cmd.Flags().GetString("name")
+		description, _ := cmd.Flags().GetString("description")
+		address, _ := cmd.Flags().GetString("address")
+		locationType, _ := cmd.Flags().GetString("type")
+		active, _ := cmd.Flags().GetBool("active")
+
+		// Create location service
+		locationService := services.NewLocationService(db)
+
+		// Build updates map
+		updates := make(map[string]interface{})
+		if name != "" {
+			updates["name"] = name
+		}
+		if description != "" {
+			updates["description"] = description
+		}
+		if address != "" {
+			updates["address"] = address
+		}
+		if locationType != "" {
+			updates["type"] = locationType
+		}
+		updates["active"] = active
+
+		// Update location
+		location, err := locationService.UpdateLocation(locationUUID, updates)
+		if err != nil {
+			return fmt.Errorf("failed to update location: %w", err)
+		}
+
+		fmt.Printf("Location updated successfully:\n")
+		fmt.Printf("  ID: %s\n", location.ID)
+		fmt.Printf("  Name: %s\n", location.Name)
+		fmt.Printf("  Description: %s\n", location.Description)
+		fmt.Printf("  Address: %s\n", location.Address)
+		fmt.Printf("  Type: %s\n", location.Type)
+		fmt.Printf("  Active: %t\n", location.Active)
+		fmt.Printf("  Updated: %s\n", location.UpdatedAt.Format(time.RFC3339))
+
+		return nil
+	},
+}
+
 func init() {
 	// User command flags
 	createUserCmd.Flags().String("email", "", "User email address")
@@ -2135,6 +2345,7 @@ func init() {
 	updateDeviceCmd.Flags().Bool("active", true, "Whether the device is active")
 
 	listDevicesCmd.Flags().String("user-id", "", "Filter devices by user ID")
+	listDevicesCmd.Flags().Bool("active-only", false, "Show only active devices")
 
 	// Authentication command flags
 	authenticateYubikeyCmd.Flags().String("permission", "", "Permission ID to check (optional)")
@@ -2221,4 +2432,30 @@ func init() {
 
 	deviceHistoryCmd.Flags().String("device-id", "", "ID of the device to get history for")
 	deviceHistoryCmd.MarkFlagRequired("device-id")
+
+	// Location management commands
+	locationCmd.AddCommand(createLocationCmd)
+	locationCmd.AddCommand(listLocationsCmd)
+	locationCmd.AddCommand(deleteLocationCmd)
+	locationCmd.AddCommand(updateLocationCmd)
+
+	// Add --active-only flags for list commands
+	listUsersCmd.Flags().Bool("active-only", false, "Show only active users")
+	listResourcesCmd.Flags().Bool("active-only", false, "Show only active resources")
+
+	createLocationCmd.Flags().String("name", "", "Location name")
+	createLocationCmd.Flags().String("description", "", "Location description")
+	createLocationCmd.Flags().String("address", "", "Location address")
+	createLocationCmd.Flags().String("type", "office", "Location type (office, home, event, other)")
+	createLocationCmd.Flags().Bool("active", true, "Whether the location is active")
+	createLocationCmd.MarkFlagRequired("name")
+
+	updateLocationCmd.Flags().String("name", "", "Location name")
+	updateLocationCmd.Flags().String("description", "", "Location description")
+	updateLocationCmd.Flags().String("address", "", "Location address")
+	updateLocationCmd.Flags().String("type", "", "Location type (office, home, event, other)")
+	updateLocationCmd.Flags().Bool("active", true, "Whether the location is active")
+
+	listLocationsCmd.Flags().Bool("active-only", false, "Show only active locations")
+	listLocationsCmd.Flags().String("type", "", "Filter locations by type")
 }

@@ -89,8 +89,8 @@ func handleListDevices(deviceService *services.DeviceService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Check if filtering by user ID
 		userIDParam := c.Query("user_id")
+		activeOnly := c.Query("active") == "true"
 		var userID *uuid.UUID
-		
 		if userIDParam != "" {
 			parsedUserID, err := uuid.Parse(userIDParam)
 			if err != nil {
@@ -100,7 +100,13 @@ func handleListDevices(deviceService *services.DeviceService) gin.HandlerFunc {
 			userID = &parsedUserID
 		}
 
-		devices, err := deviceService.ListDevices(userID)
+		var devices []database.Device
+		var err error
+		if activeOnly {
+			devices, err = deviceService.ListActiveDevices(userID)
+		} else {
+			devices, err = deviceService.ListDevices(userID)
+		}
 		if err != nil {
 			errorResponse(c, http.StatusInternalServerError, err.Error())
 			return

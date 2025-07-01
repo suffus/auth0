@@ -109,6 +109,19 @@ CREATE TABLE device_registrations (
     notes TEXT
 );
 
+-- Locations table
+CREATE TABLE locations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP WITH TIME ZONE,
+    name VARCHAR(255) UNIQUE NOT NULL,
+    description TEXT,
+    address TEXT,
+    type VARCHAR(20) DEFAULT 'office' CHECK (type IN ('office', 'home', 'event', 'other')),
+    active BOOLEAN DEFAULT TRUE
+);
+
 -- Junction tables for many-to-many relationships
 
 -- User-Role relationship
@@ -146,6 +159,11 @@ CREATE INDEX idx_authentication_logs_created_at ON authentication_logs(created_a
 CREATE INDEX idx_authentication_logs_type ON authentication_logs(type);
 CREATE INDEX idx_authentication_logs_success ON authentication_logs(success);
 
+CREATE INDEX idx_locations_deleted_at ON locations(deleted_at);
+CREATE INDEX idx_locations_name ON locations(name);
+CREATE INDEX idx_locations_type ON locations(type);
+CREATE INDEX idx_locations_active ON locations(active);
+
 CREATE INDEX idx_actions_name ON actions(name);
 
 CREATE INDEX idx_user_roles_user_id ON user_roles(user_id);
@@ -169,6 +187,7 @@ CREATE TRIGGER update_roles_updated_at BEFORE UPDATE ON roles FOR EACH ROW EXECU
 CREATE TRIGGER update_permissions_updated_at BEFORE UPDATE ON permissions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_actions_updated_at BEFORE UPDATE ON actions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_devices_updated_at BEFORE UPDATE ON devices FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_locations_updated_at BEFORE UPDATE ON locations FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Insert some default data
 -- Default admin role
@@ -206,6 +225,17 @@ INSERT INTO actions (id, name, required_permissions) VALUES
     (uuid_generate_v4(), 'permission-revoke', '["permission:revoke"]'),
     (uuid_generate_v4(), 'user-signin', '[]'),
     (uuid_generate_v4(), 'user-signout', '[]');
+
+-- Default locations
+INSERT INTO locations (id, name, description, address, type, active) VALUES 
+    (uuid_generate_v4(), 'Main Office', 'Primary office location', '123 Main Street, City, State 12345', 'office', true),
+    (uuid_generate_v4(), 'Home Office', 'Working from home', 'Various home locations', 'home', true),
+    (uuid_generate_v4(), 'Client Site', 'Working at client location', 'Client office locations', 'other', true),
+    (uuid_generate_v4(), 'Conference Center', 'Conference and event location', '456 Conference Ave, City, State 12345', 'event', true),
+    (uuid_generate_v4(), 'Airport Lounge', 'Working from airport', 'Various airport lounges', 'other', true),
+    (uuid_generate_v4(), 'Hotel Room', 'Working from hotel', 'Various hotel locations', 'other', true),
+    (uuid_generate_v4(), 'Coffee Shop', 'Working from coffee shop', 'Various coffee shops', 'other', true),
+    (uuid_generate_v4(), 'Co-working Space', 'Shared office space', '789 Co-working Blvd, City, State 12345', 'office', true);
 
 -- Assign permissions to roles
 -- Admin gets all permissions

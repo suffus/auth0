@@ -14,7 +14,8 @@ components:
       in: header
       name: Authorization
       description: |
-        Device-based authentication. Example: `yubikey:<otp>`, `totp:<code>`, etc.
+        Device-based authentication. Format: `<device_type>:<auth_code>`
+        Examples: `yubikey:<otp>`, `totp:<code>`, `sms:<code>`, `email:<code>`
         Required for all write operations (POST, PUT, DELETE).
     SessionAuth:
       type: http
@@ -327,10 +328,33 @@ paths:
           application/json:
             schema:
               type: object
-              description: Action-specific data (structure varies by action)
-              example:
-                resource: "aws-cloud-west/server101"
-                login: "support"
+              description: Action request with optional location, status, and timing information
+              properties:
+                location:
+                  type: string
+                  description: Optional location name where the action is being performed
+                  example: "Main Office"
+                status:
+                  type: string
+                  description: Optional user status for the action (e.g., "working", "break")
+                  example: "working"
+                start_time:
+                  type: string
+                  format: date-time
+                  description: Optional start time for the activity (defaults to current time)
+                  example: "2025-07-01T10:00:00Z"
+                end_time:
+                  type: string
+                  format: date-time
+                  description: Optional end time for the activity
+                  example: "2025-07-01T18:00:00Z"
+                details:
+                  type: object
+                  description: Additional action-specific details (merged with action details)
+                  example:
+                    resource: "aws-cloud-west/server101"
+                    login: "support"
+                    notes: "Emergency access required"
       responses:
         '200':
           description: Action performed successfully
@@ -343,6 +367,14 @@ paths:
                   user_id: { type: string, format: uuid }
                   success: { type: boolean }
                   message: { type: string }
+                  user_activity:
+                    type: object
+                    description: User activity information (only present for actions with activity_type 'user')
+                    properties:
+                      id: { type: string, format: uuid }
+                      from_datetime: { type: string, format: date-time }
+                      status: { $ref: '#/components/schemas/UserStatus' }
+                      location: { $ref: '#/components/schemas/Location' }
         '401':
           description: Authentication failed
         '403':

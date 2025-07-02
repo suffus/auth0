@@ -49,7 +49,7 @@ func setupRouter(
 		api.POST("/auth/session/refresh/:session_id", handleRefreshSession(sessionService))
 
 		// Action endpoint - POST /auth/action/${action_name}
-		api.POST("/auth/action/:action_name", handlePerformAction(authService, actionService))
+		api.POST("/auth/action/:action_name", handlePerformAction(authService, actionService, userActivityService, locationService, userStatusService))
 
 		// User management - GET methods accept both device and session auth, write methods require device auth
 		users := api.Group("/users")

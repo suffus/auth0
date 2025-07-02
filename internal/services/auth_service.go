@@ -32,7 +32,7 @@ func NewAuthService(db *gorm.DB, config *config.Config) *AuthService {
 
 // AuthenticateDevice authenticates a user using a device and checks permissions
 // Returns both user and device information
-func (s *AuthService) AuthenticateDevice(deviceType, authCode, requiredPermission string) (*database.User, *database.Device, error) {
+func (s *AuthService) AuthenticateDevice(deviceType, authCode string, requiredPermissions ...string) (*database.User, *database.Device, error) {
 	var device *database.Device
 	var err error
 
@@ -65,7 +65,7 @@ func (s *AuthService) AuthenticateDevice(deviceType, authCode, requiredPermissio
 		"device_type": device.Type,
 		"auth_code": authCode,
 		"type": "mfa",
-		"permission_checked": requiredPermission,
+		"permissions_checked": requiredPermissions,
 	}
 
 	// Check if user and device are active
@@ -76,40 +76,50 @@ func (s *AuthService) AuthenticateDevice(deviceType, authCode, requiredPermissio
 		return nil, nil, fmt.Errorf("device is not active")
 	}
 
-	// If no permission required, just return the user and device
-	if requiredPermission == "" {
+	// Filter out empty permission strings
+	var validPermissions []string
+	for _, perm := range requiredPermissions {
+		if strings.TrimSpace(perm) != "" {
+			validPermissions = append(validPermissions, perm)
+		}
+	}
+
+	// If no permissions required, just return the user and device
+	if len(validPermissions) == 0 {
 		s.deviceService.UpdateDeviceLastUsed(device.ID)
-		s.logAuthentication(device, &user, true, requiredPermission, "", details)
+		s.logAuthentication(device, &user, true, "", "", details)
 		return &user, device, nil
 	}
 
-	// Check if user has the required permission
-	hasPermission := false
-	
-	// Try to parse as UUID first
-	if permissionID, err := uuid.Parse(requiredPermission); err == nil {
-		// It's a UUID, check if user has this specific permission
-		hasPermission = s.checkUserHasPermissionByID(&user, permissionID)
-	} else {
-		// It's not a UUID, try to parse as resource:action format
-		parts := strings.Split(requiredPermission, ":")
-		if len(parts) != 2 {
-			return nil, nil, fmt.Errorf("invalid permission format: %s (expected 'resource:action' or permission UUID)", requiredPermission)
+	// Check if user has ALL required permissions
+	for _, requiredPermission := range validPermissions {
+		hasPermission := false
+		
+		// Try to parse as UUID first
+		if permissionID, err := uuid.Parse(requiredPermission); err == nil {
+			// It's a UUID, check if user has this specific permission
+			hasPermission = s.checkUserHasPermissionByID(&user, permissionID)
+		} else {
+			// It's not a UUID, try to parse as resource:action format
+			parts := strings.Split(requiredPermission, ":")
+			if len(parts) != 2 {
+				return nil, nil, fmt.Errorf("invalid permission format: %s (expected 'resource:action' or permission UUID)", requiredPermission)
+			}
+			resourceName, action := parts[0], parts[1]
+			hasPermission = s.checkUserHasPermissionByResourceAction(&user, resourceName, action)
 		}
-		resourceName, action := parts[0], parts[1]
-		hasPermission = s.checkUserHasPermissionByResourceAction(&user, resourceName, action)
-	}
 
-	if !hasPermission {
-		s.logAuthentication(device, &user, false, requiredPermission, "permission denied", details)
-		return nil, nil, fmt.Errorf("permission denied: %s", requiredPermission)
+		if !hasPermission {
+			s.logAuthentication(device, &user, false, requiredPermission, "permission denied", details)
+			return nil, nil, fmt.Errorf("permission denied: %s", requiredPermission)
+		}
 	}
 
 	// Update device last used timestamp
 	s.deviceService.UpdateDeviceLastUsed(device.ID)
 
 	// Log successful authentication
-	s.logAuthentication(device, &user, true, requiredPermission, "", details)
+	s.logAuthentication(device, &user, true, strings.Join(validPermissions, ","), "", details)
 
 	return &user, device, nil
 }
@@ -256,7 +266,7 @@ func (s *AuthService) LogAuthentication(logData map[string]interface{}) error {
 
 	// Extract fields from logData
 	if userID, ok := logData["user_id"].(uuid.UUID); ok {
-		authLog.UserID = userID
+		authLog.UserID = &userID
 	}
 	if deviceID, ok := logData["device_id"].(uuid.UUID); ok {
 		authLog.DeviceID = deviceID

@@ -9,3 +9,5 @@ frontend/node_modules
 yubiapp-cli
 __pycache__
 yubiapp-api
+cmd/cli/yubiapp-cli
+yubiapp-api yubiapp-cli yubiapp-server
